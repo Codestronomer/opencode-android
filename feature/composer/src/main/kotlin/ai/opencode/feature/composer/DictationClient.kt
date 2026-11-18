@@ -473,6 +473,8 @@ private class SpeechSetup(private val context: Context) {
 
     /** What the recognizer supports, or nil when it can't say (dictation then tries the current language). */
     private suspend fun support(onDevice: Boolean): RecognitionSupport? = withContext(Dispatchers.Main) {
+        // Android 12 has no support check at all: nil says so, and dictation tries the recognizer.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@withContext null
         val recognizer = if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(context) else SpeechRecognizer.createSpeechRecognizer(context)
         try {
             suspendCancellableCoroutine { continuation ->
@@ -497,6 +499,9 @@ private class SpeechSetup(private val context: Context) {
 
     /** Downloads the on-device model for [language]: true installed, null scheduled, false when it won't be there. */
     private suspend fun install(language: String): Boolean? = withContext(Dispatchers.Main) {
+        // Android 12 can't request a download: the press falls through to the recognizer,
+        // which surfaces a missing language from its error codes.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@withContext null
         val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
         try {

@@ -147,19 +147,21 @@ D (WP-07), E (WP-08) run concurrently — zero file overlap between lanes (§4).
 
 ## 7. Current progress log
 
-- Spec committed (this file) on `android-12`.
-- Lane A running in parallel worktrees:
-  - WP-03 **done** — `a12/notifications` `bcc6df57` (notification permission state <33;
-    `permissionStatus` never `NotDetermined` below 33; dialog unreachable on 12).
-  - WP-04 **done** — `a12/dictation` `6ef40810` (no 33-only speech API reachable <33;
-    press falls through to the recognizer; error codes 12/13 already mapped).
-  - WP-02 in progress — `a12/back` (six `onBackInvokedDispatcher` sites).
-- Lane B started — WP-05 pilot **done** — `a12/shader` `53a3ab67` (`AgentRevealGlow`
-  seam: AGSL on 33+, Canvas approximation below; pattern established for rollout).
-- Deferred to the next batch (needs build verification or upstream deps):
-  - WP-08 (appcompat locales): `AppCompatActivity` requires a `Theme.AppCompat`
-    descendant — the app's themes (`Theme.OpenCode`, the splash `Theme.OpenCode.Starting`)
-    must be audited too; too risky without a compiler.
-  - WP-07 (sherpa-onnx engine): needs the AAR wired and built; interface work can start
-    after WP-04 merges.
-  - WP-06 (predictive-back synthesizer): starts when WP-02 lands.
+First batch **complete** — four work packages landed on their branches, each verified by
+diff review (per-file guard checks, API surface checks); CI is the build gate:
+
+- WP-03 `a12/notifications` `bcc6df57` — notification permission state <33
+  (`permissionStatus` never `NotDetermined`; dialog unreachable on 12).
+- WP-04 `a12/dictation` `6ef40810` — no 33-only speech API reachable <33.
+- WP-05 pilot `a12/shader` `53a3ab67` — `AgentRevealGlow` seam (AGSL 33+ / Canvas <33).
+- WP-02 `a12/back` `4a77fd3e` — all six `onBackInvokedDispatcher` sites guarded
+  (`TIRAMISU` branches verified per-site); `:feature:transcript` gained
+  `libs.androidx.activity.compose`.
+
+Next batch (in dependency order):
+1. Push all branches → CI `scripts/check.sh` per branch (the build gate).
+2. WP-06 `PredictiveBackSynthesizer` (unblocked — wires into WP-02's <33 branches).
+3. WP-07 `DictationEngine` + sherpa-onnx (unblocked by WP-04's isolated <33 logic).
+4. WP-08 appcompat locales (needs a compiling environment to audit the
+   `Theme.AppCompat` theme requirements).
+5. WP-01 minSdk flip **last** — blocks on an empty CI `NewApi` report.

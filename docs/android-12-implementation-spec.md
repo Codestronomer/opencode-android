@@ -148,5 +148,18 @@ D (WP-07), E (WP-08) run concurrently — zero file overlap between lanes (§4).
 ## 7. Current progress log
 
 - Spec committed (this file) on `android-12`.
-- WP-02, WP-03, WP-04 running in parallel in their worktrees (lane A).
-- WP-05 pilot in `../wt-shader` (lane B).
+- Lane A running in parallel worktrees:
+  - WP-03 **done** — `a12/notifications` `bcc6df57` (notification permission state <33;
+    `permissionStatus` never `NotDetermined` below 33; dialog unreachable on 12).
+  - WP-04 **done** — `a12/dictation` `6ef40810` (no 33-only speech API reachable <33;
+    press falls through to the recognizer; error codes 12/13 already mapped).
+  - WP-02 in progress — `a12/back` (six `onBackInvokedDispatcher` sites).
+- Lane B started — WP-05 pilot **done** — `a12/shader` `53a3ab67` (`AgentRevealGlow`
+  seam: AGSL on 33+, Canvas approximation below; pattern established for rollout).
+- Deferred to the next batch (needs build verification or upstream deps):
+  - WP-08 (appcompat locales): `AppCompatActivity` requires a `Theme.AppCompat`
+    descendant — the app's themes (`Theme.OpenCode`, the splash `Theme.OpenCode.Starting`)
+    must be audited too; too risky without a compiler.
+  - WP-07 (sherpa-onnx engine): needs the AAR wired and built; interface work can start
+    after WP-04 merges.
+  - WP-06 (predictive-back synthesizer): starts when WP-02 lands.

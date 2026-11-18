@@ -10,6 +10,9 @@ android {
 // app.
 dependencies {
     api(project(":feature:media"))
+    // androidx.activity's OnBackPressedDispatcher: back registration on Android 12 (< 33), where
+    // the framework's OnBackInvokedDispatcher doesn't exist.
+    implementation(libs.androidx.activity.compose)
     implementation(libs.coil.compose)
     implementation(libs.jlatexmath.android)
     // android.icu (time stamps), MimeTypeMap/Uri/ClipData (drag payloads) in JVM tests.

@@ -48,10 +48,13 @@ import ai.opencode.feature.transcript.user.TranscriptMessageRow
 import ai.opencode.feature.transcript.user.TranscriptUserMessage
 import ai.opencode.feature.transcript.user.UserMessageRun
 import ai.opencode.feature.transcript.user.findActivity
+import android.os.Build
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityManager
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import androidx.activity.addCallback
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.MutableTransitionState
@@ -164,12 +167,21 @@ private class TranscriptListPosition(val state: LazyListState, anchor: Pair<Stri
 private fun ReplySelectionBackHandler(selection: TranscriptReplySelection) {
     if (!selection.isSelected || WindowInsets.isImeVisible) return
     val activity = LocalContext.current.findActivity() ?: return
+    val backOwner = LocalOnBackPressedDispatcherOwner.current
     DisposableEffect(activity, selection) {
-        val callback = OnBackInvokedCallback { selection.clear(byReader = true) }
-        // At the app's own priority, registered as the selection begins: what opens over it later
-        // (the drawer, a menu, an in-window sheet) registers after it and takes Back first.
-        activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
-        onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val callback = OnBackInvokedCallback { selection.clear(byReader = true) }
+            // At the app's own priority, registered as the selection begins: what opens over it later
+            // (the drawer, a menu, an in-window sheet) registers after it and takes Back first.
+            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
+            onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        } else {
+            // Android 12 sends no back-progress events, so back only ends the selection, as on 13.
+            val callback = backOwner?.onBackPressedDispatcher
+                ?.addCallback(backOwner, enabled = true) { selection.clear(byReader = true) }
+                ?: return@DisposableEffect onDispose { }
+            onDispose { callback.remove() }
+        }
     }
 }
 

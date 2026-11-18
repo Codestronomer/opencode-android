@@ -4,7 +4,10 @@ import ai.opencode.core.motion.rememberReduceMotion
 import ai.opencode.core.ui.OpenCodeTheme
 import ai.opencode.feature.media.TranscriptMetrics
 import ai.opencode.feature.transcript.TranscriptTunables
+import android.graphics.BlurMaskFilter
+import android.graphics.Paint
 import android.graphics.RuntimeShader
+import android.os.Build
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -17,10 +20,15 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.dp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -165,24 +173,74 @@ fun AgentMessageRevealLight(light: Double, corners: UserSurfaceCorners = UserSur
     )
 }
 
-/** The reveal light's shader, drawn into a surface's own bounds (shared by [AgentMessageRevealLight] and the bubble fill). */
+/**
+ * The reveal light's renderer, one per API level. `RuntimeShader` (API 33) doesn't exist on
+ * Android 12, so there the glow approximates the AGSL pass on Canvas.
+ */
 internal class AgentRevealGlow {
-    private val shader = RuntimeShader(AGENT_REVEAL_GLOW_AGSL)
-    private val brush = ShaderBrush(shader)
+    private val renderer: Renderer =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslGlow() else CanvasGlow()
 
     fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
-        if (light <= 1e-4) return
-        val (lift, glow) = AgentMessageReveal.colors(dark)
-        val full = TranscriptMetrics.bubbleCornerRadius.value
-        val tight = UserMessageRun.tightRadius.value
-        shader.setFloatUniform("size", size.width, size.height)
-        shader.setFloatUniform("radii", full, full, if (corners.top) tight else full, if (corners.bottom) tight else full)
-        shader.setFloatUniform("density", density)
-        shader.setColorUniform("liftIn", lift.toArgb())
-        shader.setColorUniform("glowIn", glow.toArgb())
-        shader.setFloatUniform("fillLift", (AgentMessageReveal.fillLift * light).toFloat())
-        shader.setFloatUniform("innerGlow", (AgentMessageReveal.innerGlow * light).toFloat())
-        drawRect(brush)
+        with(renderer) { draw(light, corners, dark) }
+    }
+
+    private interface Renderer {
+        fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean)
+    }
+
+    /** The AGSL pass, API 33+, unchanged. */
+    private class AgslGlow : Renderer {
+        private val shader = RuntimeShader(AGENT_REVEAL_GLOW_AGSL)
+        private val brush = ShaderBrush(shader)
+
+        override fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
+            if (light <= 1e-4) return
+            val (lift, glow) = AgentMessageReveal.colors(dark)
+            val full = TranscriptMetrics.bubbleCornerRadius.value
+            val tight = UserMessageRun.tightRadius.value
+            shader.setFloatUniform("size", size.width, size.height)
+            shader.setFloatUniform("radii", full, full, if (corners.top) tight else full, if (corners.bottom) tight else full)
+            shader.setFloatUniform("density", density)
+            shader.setColorUniform("liftIn", lift.toArgb())
+            shader.setColorUniform("glowIn", glow.toArgb())
+            shader.setFloatUniform("fillLift", (AgentMessageReveal.fillLift * light).toFloat())
+            shader.setFloatUniform("innerGlow", (AgentMessageReveal.innerGlow * light).toFloat())
+            drawRect(brush)
+        }
+    }
+
+    /** API < 33: the flat fill lift plus the border blurred inward, in the bubble's clip. */
+    private class CanvasGlow : Renderer {
+        override fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
+            if (light <= 1e-4) return
+            val (lift, glow) = AgentMessageReveal.colors(dark)
+            val aLift = (AgentMessageReveal.fillLift * light).toFloat().coerceIn(0f, 1f)
+            if (aLift > 1e-4f) drawRect(lift.copy(alpha = lift.alpha * aLift))
+            val aGlow = (AgentMessageReveal.innerGlow * light).toFloat().coerceIn(0f, 1f)
+            if (aGlow <= 1e-4f) return
+            val full = TranscriptMetrics.bubbleCornerRadius.toPx()
+            val tight = UserMessageRun.tightRadius.toPx()
+            val falloff = 7.dp.toPx()
+            val path = Path().apply {
+                addRoundRect(
+                    RoundRect(
+                        0f, 0f, size.width, size.height,
+                        topLeft = CornerRadius(full),
+                        topRight = CornerRadius(if (corners.top) tight else full),
+                        bottomRight = CornerRadius(if (corners.bottom) tight else full),
+                        bottomLeft = CornerRadius(full),
+                    ),
+                )
+            }
+            val paint = Paint().apply {
+                style = Paint.Style.STROKE
+                strokeWidth = falloff
+                maskFilter = BlurMaskFilter(falloff * 0.5f, BlurMaskFilter.Blur.NORMAL)
+                color = glow.copy(alpha = glow.alpha * 0.76f * aGlow).toArgb()
+            }
+            drawIntoCanvas { it.nativeCanvas.drawPath(path, paint) }
+        }
     }
 }
 

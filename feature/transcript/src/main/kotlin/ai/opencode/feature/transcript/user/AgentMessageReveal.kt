@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
@@ -210,8 +211,15 @@ internal class AgentRevealGlow {
         }
     }
 
-    /** API < 33: the flat fill lift plus the border blurred inward, in the bubble's clip. */
+    /** API < 33: the flat fill lift plus the border blurred inward, in the bubble's clip. Main thread only. */
     private class CanvasGlow : Renderer {
+        private var path: Path? = null
+        private var pathSize: Size? = null
+        private var pathCorners: UserSurfaceCorners? = null
+        private var blur: BlurMaskFilter? = null
+        private var blurFalloff = 0f
+        private val paint = Paint()
+
         override fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
             if (light <= 1e-4) return
             val (lift, glow) = AgentMessageReveal.colors(dark)
@@ -222,7 +230,8 @@ internal class AgentRevealGlow {
             val full = TranscriptMetrics.bubbleCornerRadius.toPx()
             val tight = UserMessageRun.tightRadius.toPx()
             val falloff = 7.dp.toPx()
-            val path = Path().apply {
+            val frameBlur = blurFor(falloff)
+            val framePath = path?.takeIf { pathSize == size && pathCorners == corners } ?: Path().apply {
                 addRoundRect(
                     RoundRect(
                         0f, 0f, size.width, size.height,
@@ -232,14 +241,25 @@ internal class AgentRevealGlow {
                         bottomLeft = CornerRadius(full),
                     ),
                 )
+            }.also {
+                path = it
+                pathSize = size
+                pathCorners = corners
             }
-            val paint = Paint().apply {
-                style = Paint.Style.STROKE
-                strokeWidth = falloff
-                maskFilter = BlurMaskFilter(falloff * 0.5f, BlurMaskFilter.Blur.NORMAL)
-                color = glow.copy(alpha = glow.alpha * 0.76f * aGlow).toArgb()
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = falloff
+            paint.maskFilter = frameBlur
+            paint.color = glow.copy(alpha = glow.alpha * 0.76f * aGlow).toArgb()
+            drawIntoCanvas { it.nativeCanvas.drawPath(framePath, paint) }
+        }
+
+        /** Density can change (multi-window), so the blur rebuilds when the falloff does. */
+        private fun blurFor(falloff: Float): BlurMaskFilter {
+            if (blurFalloff != falloff) {
+                blur = BlurMaskFilter(falloff * 0.5f, BlurMaskFilter.Blur.NORMAL)
+                blurFalloff = falloff
             }
-            drawIntoCanvas { it.nativeCanvas.drawPath(path, paint) }
+            return blur!!
         }
     }
 }

@@ -165,7 +165,9 @@ fixed). Emulators: `OpenCode_API_31` (Pixel profile) and `OpenCode_API_36` (repo
 
 Next batch:
 1. Push all branches → CI confirmation (local gate already green).
-2. WP-06 `PredictiveBackSynthesizer` — in progress, branched from `a12/back`.
+2. WP-06 `PredictiveBackSynthesizer` — **done** — `a12/predictive-back` `dae14952`
+   (core/ui synthesizer reusing `BackSwipeRules`; media viewer wired; `:feature:media`
+   check.sh PASS; preview build running on the API 31 emulator for hands-on QA).
 3. WP-07 `DictationEngine` + sherpa-onnx.
 4. WP-08 appcompat locales.
 5. WP-01 minSdk flip **last** — dry run already clean (assemble + manifest merge; the

@@ -178,6 +178,30 @@ Remaining (outside this machine's reach):
 - Remaining device QA by hand: media-viewer edge-swipe back preview (WP-06), Settings →
   Language picker drive (WP-08).
 
+## 7b. WP-11 in progress — closing the visual gap (GL port)
+
+The GL port of the shader effects (§10.2) is underway. The foundation and the
+first effect are done and proven:
+
+- `core/ui/gl/GlPixelRenderer.kt` — the shared GLES 3.0 off-screen engine
+  (EGL context on its own thread, explicit VBO quad, per-pass FBO, readback).
+- The reveal glow: AGSL ported mechanically to GLSL ES 3.0; the seam is
+  Agsl (33+) / Gl (12) / Canvas (only if GLES is unusable).
+- **Golden diff (the debug-only Shader Lab, AGSL vs GL side by side on the
+  API 36 emulator where both paths run on one GPU): mean channel delta
+  0.369/255 (~0.14%) at best alignment — visually identical.**
+- The QA loop caught four pipeline defects (attribute-less quads drawing no
+  fragments, the GLES JNI's Buffer position semantics, glBufferData's
+  element/byte check, CanvasGlow's 4-vs-8 radii array) — each fixed and
+  recorded in the commits.
+- The debug-only Shader Lab (`adb shell am start -n ai.opencode.mobilecode
+  .debug/ai.opencode.app.ShaderLabActivity`) renders each effect twice for
+  the diff; it grows with every ported effect.
+
+Remaining: port the other 8 effects (agent orb, catch-up drift, DotScope,
+WispOrb + child pass, ConnectionScope + child pass, SignalField, send-reset)
+following the proven pattern, verifying each in the Lab.
+
 ## 8. Device QA record (Galaxy S10+, Android 12 / API 31)
 
 - **Crashes: zero** across the whole session (`logcat -b crash` empty from the fresh

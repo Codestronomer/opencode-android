@@ -16,6 +16,7 @@ import android.graphics.RadialGradient
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
+import androidx.annotation.RequiresApi
 import android.util.Half
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
@@ -392,6 +393,7 @@ private class DotScopeRaster {
     }
 
     /** The AGSL pass, API 33+, unchanged. */
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private class Agsl : Renderer {
         private val shader = RuntimeShader(DotScopeShaders.dotScopeFragment)
         private var bitmap: Bitmap? = null

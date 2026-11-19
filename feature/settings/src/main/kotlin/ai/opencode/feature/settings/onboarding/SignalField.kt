@@ -10,6 +10,7 @@ import ai.opencode.feature.settings.onboarding.OnboardingPlaygroundFeature.Phase
 import ai.opencode.feature.settings.onboarding.OnboardingPlaygroundFeature.Variant
 import android.graphics.RuntimeShader
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -170,6 +171,7 @@ internal class SignalFieldLayer {
     }
 
     /** The AGSL pass, API 33+, unchanged. */
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private class AgslField : Renderer {
         private val shader = RuntimeShader(SignalFieldShaderSource)
         private val brush = ShaderBrush(shader)

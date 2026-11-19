@@ -139,13 +139,13 @@ internal class SherpaOnnxEngine(
                 for (samples in queue) {
                     stream.acceptWaveform(toFloats(samples), TARGET.sampleRate)
                     recognizer.native { while (isReady(stream)) decode(stream) }
-                    val partial = casing(recognizer.native { getResult(stream).text })
+                    val partial = casing(recognizer.native { getResult(stream).text }, capitalizeStart = !hasFinal)
                     if (partial.isNotBlank() && partial != lastPartial) {
                         lastPartial = partial
                         channel.trySend(DictationResult(spaced(partial), isFinal = false))
                     }
                     if (recognizer.native { isEndpoint(stream) }) {
-                        val text = casing(recognizer.native { getResult(stream).text })
+                        val text = casing(recognizer.native { getResult(stream).text }, capitalizeStart = !hasFinal)
                         if (text.isNotBlank()) {
                             channel.trySend(DictationResult(spaced(text), isFinal = true))
                             hasFinal = true
@@ -157,7 +157,7 @@ internal class SherpaOnnxEngine(
                 val final = recognizer.native {
                     stream.inputFinished()
                     while (isReady(stream)) decode(stream)
-                    casing(getResult(stream).text)
+                    casing(getResult(stream).text, capitalizeStart = !hasFinal)
                 }
                 if (final.isNotBlank()) channel.trySend(DictationResult(spaced(final), isFinal = true))
                 channel.close()
@@ -195,11 +195,11 @@ internal class SherpaOnnxEngine(
          * re-cased here: sentences start capital, the standalone I keeps its capital, the rest
          * reads lower. Acronyms can't survive this — the model can't tell them from words.
          */
-        fun casing(text: String): String {
+        fun casing(text: String, capitalizeStart: Boolean): String {
             if (text.isBlank()) return text
             val lowered = text.lowercase().replace(Regex("\\bi\\b")) { "I" }
             val out = StringBuilder(lowered)
-            var cap = true
+            var cap = capitalizeStart
             for (i in out.indices) {
                 val ch = out[i]
                 if (cap && ch.isLetter()) {

@@ -175,5 +175,30 @@ D (WP-07), E (WP-08) run concurrently — zero file overlap between lanes (§4).
 Remaining (outside this machine's reach):
 - Push all `a12/*` branches + `android-12` to the fork; PRs into `dev` per the spec's
   review protocol (WP branches first, `a12/build-floor` last).
-- WP-09/WP-10: device QA on real Android 12 hardware (mic FGS paths, gesture nav
-  back feel, sherpa first-press latency + thermals, `logcat -b crash` clean).
+- Remaining device QA by hand: media-viewer edge-swipe back preview (WP-06), Settings →
+  Language picker drive (WP-08).
+
+## 8. Device QA record (Galaxy S10+, Android 12 / API 31)
+
+- **Crashes: zero** across the whole session (`logcat -b crash` empty from the fresh
+  install onward). The one crash in the device's older buffer was a pre-fork build
+  hitting `URLEncoder.encode(String, Charset)` at `SystemSearchIndex.kt:181` — the
+  on-device proof of exactly the bug the fork fixes.
+- Pairing, two live streaming sessions, composer + send from the phone: working.
+- WP-05 fallbacks seen live: ConnectionScope LED dots (dark + light), DotScope meter
+  during dictation.
+- WP-07 dictation QA drove three fixes:
+  1. `3deef1d8` — model upgrade (LibriSpeech-only int8 left-64 → LibriSpeech+GigaSpeech
+     full-context int8, 188 MB) after the first transcription tested poorly, + engine-side
+     sentence casing (the zipformer token set is all-caps by convention).
+  2. `8ca77436` — the download outlives the mic press (a released press had cancelled the
+     188 MB download at 33 MB and surfaced the platform path's language error).
+  3. Segment casing: only the first dictation segment starts a capital (mid-sentence
+     segment finals no longer do).
+- QA-verified final result: "All right this is another test of the dictation feature…
+  let's see if my speech is cupboard or not" — casing clean, accuracy good with a
+  documented residual on accented free speech (model tier; the seam accepts better
+  models: beam search / hotwords / SenseVoice are the next levers).
+- APK size closed: `ndk.abiFilters = arm64-v8a` (249 → 137 MB) — also what unblocked the
+  install on the storage-full device (`INSTALL_FAILED_INSUFFICIENT_STORAGE`); a Play
+  release wanting other ABIs should move to splits / Play Asset Delivery.

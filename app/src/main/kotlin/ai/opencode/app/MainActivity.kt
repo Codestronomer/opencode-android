@@ -29,7 +29,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.Window
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.OnBackPressedCallback
 import ai.opencode.devtools.DevTools
 import ai.opencode.devtools.DevToolsOverlay
@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
  * The app's window. Its [Store] lives in a retained [RootStore] so configuration changes keep state
  * and in-flight effects. [route] turns intents into [AppFeature.Action]s.
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
     private val root: RootStore by viewModels()
     private val store get() = root.store
 

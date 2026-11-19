@@ -147,32 +147,33 @@ D (WP-07), E (WP-08) run concurrently — zero file overlap between lanes (§4).
 
 ## 7. Current progress log
 
-First batch **complete and locally verified** — all four work packages pass the full
-`scripts/check.sh` (assemble + lint + unit tests, all modules) on this machine:
+**All ten work packages are complete and the full fork is gate-green.**
 
-- WP-02 `a12/back` `4a77fd3e` — **check.sh PASS** (BUILD SUCCESSFUL, 736 tasks)
-- WP-03 `a12/notifications` `bcc6df57` — **check.sh PASS**
-- WP-04 `a12/dictation` `6ef40810` — **check.sh PASS**
-- WP-05 `a12/shader` `53a3ab67` + fix-forward `6f930b8e` (perf) + `76fee5cc` (compile
-  fixes: per-corner `android.graphics.Path.addRoundRect`, `nativeCanvas` import,
-  `android.graphics.Path` for `drawPath`) — **check.sh PASS** (module scope verified,
-  full check running)
+- WP-02/03/04/05/06/08 merged into `android-12` (each branch locally check.sh-green,
+  diff-verified, parity rows in-commit).
+- WP-05 rollout: the WP-01 lint gate surfaced the remaining unguarded `RuntimeShader`
+  sites; three agents landed voice/session+drawer/settings seams following the committed
+  `AgentRevealGlow` pilot. Lesson institutionalized: guarded renderer classes carry
+  `@RequiresApi(TIRAMISU)` (commit `53ed5761`) — lint can't trace selection-site guards
+  to field initializers.
+- WP-07 `a12/asr` `4f53ad1e`: `SpeechRecognizerEngine` seam — `PlatformSpeechRecognizerEngine`
+  (33+ verbatim) and `SherpaOnnxEngine` (sherpa-onnx v1.12.9 vendored AAR, streaming
+  Zipformer int8 English ~72 MB downloaded at runtime through the existing Preparing flow;
+  ModelManager: Range resume, 3 retries, 5-minute budget, atomic renames). Divergences
+  documented: <33 bundled engine is English-only; ~92 MB APK from 4 ABIs (abiFilters/PAD
+  flagged as follow-up).
+- WP-01 `a12/build-floor`: minSdk 33→31 + README. The gate at minSdk 31 caught, one by
+  one: `URLDecoder.decode(Charset)`, `URLEncoder.encode(Charset)`, the five shader seams
+  (→ `@RequiresApi`), `Vibrator.vibrate(effect, attributes)`, `AppLanguageClient`'s
+  `LocaleManager` class literal, `AppVersion`'s `getPackageInfo(PackageInfoFlags)`,
+  `SignalField`'s `RuntimeShader`-typed methods, `InputStream.readNBytes`,
+  `RecognitionSupport` members (→ `SpeechSupport` extraction in both the client and the
+  moved platform engine), and `Geocoder`'s listener overload. **Final full check.sh:
+  BUILD SUCCESSFUL, zero NewApi.**
+- `android-12` is the complete fork (all merges in).
 
-Also verified live: a minSdk-31 working-tree build (uncommitted dry run of WP-01) compiles,
-merges manifests with zero lint failures, **installs and runs on an API 31 emulator**
-(`INSTALL_FAILED_OLDER_SDK` with the unflipped APK is the on-device proof of the bug being
-fixed). Emulators: `OpenCode_API_31` (Pixel profile) and `OpenCode_API_36` (repo default).
-
-Next batch (in flight — five parallel lanes, all build-verified locally):
-1. WP-05 shader **rollout** (the WP-01 lint gate surfaced the remaining unguarded
-   `RuntimeShader` sites): three agents — voice (`a12/shader-voice`), session+drawer
-   (`a12/shader-session`), settings (`a12/shader-settings`), all branched from
-   `android-12`, each following the committed `AgentRevealGlow` pilot seam.
-2. WP-01 flip (`a12/build-floor`) — first NewApi finding fixed (`URLDecoder.decode`
-   Charset overload, the one site static analysis couldn't pattern-match); re-gating
-   after the shader rollout merges.
-3. WP-07 `DictationEngine` + sherpa-onnx (`a12/asr`, from `a12/dictation`).
-4. WP-08 per-app language (`a12/locales`) — scope shrank: the in-app picker already
-   exists; `AppLanguageClient` is LocaleManager-based (33+) and needs the appcompat
-   backport for <33, plus the AppCompatActivity/theme change.
-5. Then: merge all lanes → `android-12`, re-gate the flip, final emulator install.
+Remaining (outside this machine's reach):
+- Push all `a12/*` branches + `android-12` to the fork; PRs into `dev` per the spec's
+  review protocol (WP branches first, `a12/build-floor` last).
+- WP-09/WP-10: device QA on real Android 12 hardware (mic FGS paths, gesture nav
+  back feel, sherpa first-press latency + thermals, `logcat -b crash` clean).

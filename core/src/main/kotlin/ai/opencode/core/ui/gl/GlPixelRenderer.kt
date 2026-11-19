@@ -126,6 +126,30 @@ class GlPass(private val fragmentSource: String) {
     }
 
     /**
+     * Uploads [bitmap] as a linear-filtered RGBA texture on the shared context (GL thread);
+     * the caller samples it (`AGSL uniform shader` ports) and releases nothing — the texture
+     * lives until the pass's context dies with the process.
+     */
+    fun uploadTexture(bitmap: Bitmap): Int = GlPixel.run {
+        val name = IntArray(1)
+        GLES30.glGenTextures(1, name, 0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, name[0])
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+        val buffer = ByteBuffer.allocateDirect(bitmap.byteCount).order(ByteOrder.nativeOrder())
+        bitmap.copyPixelsToBuffer(buffer)
+        buffer.rewind()
+        GLES30.glTexImage2D(
+            GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA,
+            bitmap.width, bitmap.height, 0,
+            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer,
+        )
+        name[0]
+    } ?: 0
+
+    /**
      * Renders at [width]×[height] device pixels with [setUniforms] wiring this frame's
      * uniform values (call [location] then `GLES30.glUniform*`), and reads the result back.
      * The returned bitmap is reused across frames of the same size — draw it, don't cache it.

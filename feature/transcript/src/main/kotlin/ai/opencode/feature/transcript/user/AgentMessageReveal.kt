@@ -1,5 +1,6 @@
 package ai.opencode.feature.transcript.user
 
+import ai.opencode.core.log.AppLog
 import ai.opencode.core.ui.gl.GlPass
 import ai.opencode.core.motion.rememberReduceMotion
 import ai.opencode.core.ui.OpenCodeTheme

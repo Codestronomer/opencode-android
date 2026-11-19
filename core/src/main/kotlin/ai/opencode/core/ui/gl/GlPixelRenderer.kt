@@ -115,6 +115,7 @@ class GlPass(private val fragmentSource: String) {
     private var targetHeight = 0
     private val locations = mutableMapOf<String, Int>()
     private var pixels: ByteBuffer? = null
+    private var quad = 0
 
     /** The FBO texture (valid on the shared GL context), for parent passes sampling children. */
     fun texture(): Int = texture
@@ -154,9 +155,18 @@ class GlPass(private val fragmentSource: String) {
             GLES30.glClearColor(0f, 0f, 0f, 0f)
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
             GLES30.glUseProgram(program)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quad)
+            val aPos = GLES30.glGetAttribLocation(program, "aPos")
+            GLES30.glEnableVertexAttribArray(aPos)
+            GLES30.glVertexAttribPointer(aPos, 2, GLES30.GL_FLOAT, false, 0, 0)
             setUniforms(this)
-            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 3)
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
+            GLES30.glDisableVertexAttribArray(aPos)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
             val buffer = pixels!!
+            // The GLES JNI advances the buffer's position after the read; a frame that
+            // renders without the bitmap step would leave it at capacity. Rewind first.
+            buffer.rewind()
             GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
             true
@@ -165,8 +175,7 @@ class GlPass(private val fragmentSource: String) {
 
     /** The frame's pixels, as the bitmap the caller composites. UI thread only. */
     fun bitmap(width: Int, height: Int): Bitmap? {
-        // TEST (b): the copy's source is a fresh array, not the GL-touched buffer.
-        val buffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+        val buffer = pixels ?: return null
         buffer.rewind()
         val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         out.copyPixelsFromBuffer(buffer)
@@ -188,7 +197,6 @@ class GlPass(private val fragmentSource: String) {
             AppLog.app.error("gl_link_error ${GLES30.glGetProgramInfoLog(program).trim()}")
             return 0
         }
-        AppLog.app.info("gl_shader_linked len=${fragmentSource.length}")
         return program
     }
 
@@ -221,17 +229,39 @@ class GlPass(private val fragmentSource: String) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, texture, 0)
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        if (quad == 0) {
+            val names = IntArray(1)
+            GLES30.glGenBuffers(1, names, 0)
+            quad = names[0]
+            // The GLES JNI checks Buffer.remaining() against the byte size, so the VBO
+            // data ships as a byte buffer even though it holds floats.
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quad)
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, QUAD_BYTES.remaining(), QUAD_BYTES, GLES30.GL_STATIC_DRAW)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+        }
         targetWidth = width
         targetHeight = height
         pixels = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
     }
 }
 
-/** The fullscreen quad, attribute-less: three vertices cover the viewport in clip space. */
+/** Two triangles covering the viewport in clip space (attribute-less quads are fragile on some drivers). */
+private val QUAD_BYTES = ByteBuffer
+    .allocateDirect(12 * 4)
+    .order(java.nio.ByteOrder.nativeOrder())
+    .apply {
+        asFloatBuffer().put(
+            floatArrayOf(
+                -1f, -1f, 1f, -1f, -1f, 1f,
+                1f, -1f, 1f, 1f, -1f, 1f,
+            ),
+        )
+    }
+
 private const val VERTEX = """
 #version 300 es
+in vec2 aPos;
 void main() {
-  vec2 corner = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
-  gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+  gl_Position = vec4(aPos, 0.0, 1.0);
 }
 """

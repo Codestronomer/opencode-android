@@ -14,7 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 
 /**
@@ -99,6 +98,9 @@ private fun EdgeSwipes(
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        // Raw delta: other hit-path filters may consume the moves; a
+                        // non-consuming observer still needs the real travel.
+                        offset += change.position - change.previousPosition
                         if (change.lifted()) {
                             if (started) {
                                 val velocity = tracker.calculateVelocity().x * inwardSign

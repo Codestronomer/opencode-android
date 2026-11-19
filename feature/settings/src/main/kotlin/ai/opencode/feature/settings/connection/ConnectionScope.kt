@@ -2,10 +2,13 @@ package ai.opencode.feature.settings.connection
 
 import ai.opencode.core.motion.rememberReduceMotion
 import ai.opencode.core.ui.OpenCodeTheme
+import ai.opencode.core.ui.gl.GlPass
+import ai.opencode.core.ui.gl.GlPixel
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.RuntimeShader
 import android.graphics.Shader
+import android.opengl.GLES30
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Canvas
@@ -20,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -42,8 +46,9 @@ import kotlin.math.sqrt
  *
  * One AGSL [RuntimeShader] rect ([ConnectionScopeShaders]) over the CPU-lit field, ticked at 30
  * fps. It stops drawing off screen and when the app isn't resumed; under reduce motion it's a still
- * trace redrawn only when the status changes. On Android 12 (below API 33) the AGSL pass doesn't
- * exist and the lit dots draw from the same field on Canvas.
+ * trace redrawn only when the status changes. On Android 12 (below API 33) the same pass runs as
+ * its GLSL ES 3.0 port ([ConnectionScopeRenderer.GlScope]); only if GLES is unusable there do the
+ * lit dots draw from the field on Canvas.
  */
 @Composable
 fun ConnectionScopeView(monitor: ConnectionMonitor, isHidden: Boolean, modifier: Modifier = Modifier) {
@@ -135,9 +140,12 @@ internal data class ScopePalette(val main: ScopeColor, val mainCore: ScopeColor,
 
 /**
  * Rasterises the trace on the CPU each frame and draws the lit grid. A plain object owned by the
- * view (per-frame motion lives here, not in a reducer).
+ * view (per-frame motion lives here, not in a reducer). [force] pins a renderer for the shader
+ * lab's side-by-side golden diff; production callers take the default (null).
  */
-internal class ConnectionScopeRenderer {
+internal class ConnectionScopeRenderer(private val force: Mode? = null) {
+    enum class Mode { Agsl, Gl }
+
     companion object {
         /**
          * Where the trace fades in from each side of the box, and over how long (dp): its visible
@@ -172,8 +180,11 @@ internal class ConnectionScopeRenderer {
     var highContrast = false
 
     private val raster = ConnectionTraceRaster()
-    private val renderer: Renderer =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslScope() else CanvasScope()
+    private val renderer: Renderer = when {
+        force == Mode.Gl -> GlScope()
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> AgslScope()
+        else -> GlScope()
+    }
     private var grid: DotScopeGrid? = null
     private var pixels = IntArray(0)
     private var lastFrame: Double? = null
@@ -221,7 +232,7 @@ internal class ConnectionScopeRenderer {
         with(renderer) { scope.draw(pixels, grid, palette, trace!!, isDark, highContrast) }
     }
 
-    /** Where the lit field draws: the AGSL pass on 33+, its dot curves on Canvas below. */
+    /** Where the lit field draws: the AGSL pass on 33+, its GLSL port on 12, Canvas if GLES is unusable. */
     private interface Renderer {
         fun DrawScope.draw(field: IntArray, grid: DotScopeGrid, palette: ScopePalette, trace: Pair<ScopeColor, ScopeColor>, dark: Boolean, highContrast: Boolean)
     }
@@ -266,7 +277,67 @@ internal class ConnectionScopeRenderer {
         }
     }
 
-    /** API < 33: the field's lit dots on Canvas, the AGSL pass's per-dot curves without its unlit grid, halo and rim fade. Main thread only. */
+    /**
+     * The ported pass on GLES 3.0 (docs/android-12-support.md §10.2): the same lit-dot
+     * composition the AGSL pass draws, with the field bitmap uploaded as the child texture
+     * each frame. Canvas fallback if GL is unusable. Main thread only.
+     */
+    private class GlScope : Renderer {
+        private val pass = GlPass(ConnectionScopeShaders.CONNECTION_SCOPE_GLSL)
+        private val canvas by lazy { CanvasScope() }
+        private var fieldBitmap: Bitmap? = null
+        private var fieldGrid: DotScopeGrid? = null
+        private var texture = 0
+
+        override fun DrawScope.draw(field: IntArray, grid: DotScopeGrid, palette: ScopePalette, trace: Pair<ScopeColor, ScopeColor>, dark: Boolean, highContrast: Boolean) {
+            val width = ceil(size.width).toInt()
+            val height = ceil(size.height).toInt()
+            if (width < 1 || height < 1) return
+            val bitmap = bitmapFor(field, grid)
+            val uploaded = pass.uploadTexture(bitmap)
+            if (uploaded == 0) {
+                with(canvas) { draw(field, grid, palette, trace, dark, highContrast) }
+                return
+            }
+            val previous = texture
+            texture = uploaded
+            val rendered = pass.render(width, height) { gl ->
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, uploaded)
+                GLES30.glUniform1i(gl.location("field"), 0)
+                GLES30.glUniform4f(gl.location("grid"), grid.pitch, grid.columns.toFloat(), grid.rows.toFloat(), grid.scale)
+                GLES30.glUniform4f(gl.location("origin"), grid.originX, grid.originY, grid.width, grid.height)
+                GLES30.glUniform4f(gl.location("state"), if (dark) 1f else 0f, if (highContrast) 1.3f else 1f, FIELD_SCALE, 0f)
+                GLES30.glUniform4f(gl.location("window"), windowInset, windowFade, windowInset, cornerRadius)
+                val (main, mainCore) = trace
+                GLES30.glUniform4f(gl.location("mainTint"), main.r, main.g, main.b, main.a)
+                GLES30.glUniform4f(gl.location("mainCore"), mainCore.r, mainCore.g, mainCore.b, mainCore.a)
+                GLES30.glUniform4f(gl.location("alertTint"), palette.alert.r, palette.alert.g, palette.alert.b, palette.alert.a)
+                GLES30.glUniform4f(gl.location("alertCore"), palette.alertCore.r, palette.alertCore.g, palette.alertCore.b, palette.alertCore.a)
+                GLES30.glUniform2f(gl.location("uSize"), size.width, size.height)
+            }
+            val output = if (rendered) pass.bitmap(width, height) else null
+            if (output == null) {
+                with(canvas) { draw(field, grid, palette, trace, dark, highContrast) }
+            } else {
+                drawImage(output.asImageBitmap())
+            }
+            if (previous != 0) GlPixel.run { GLES30.glDeleteTextures(1, intArrayOf(previous), 0) }
+        }
+
+        private fun bitmapFor(field: IntArray, grid: DotScopeGrid): Bitmap {
+            val bitmap = if (fieldGrid != grid) {
+                fieldGrid = grid
+                Bitmap.createBitmap(grid.columns, grid.rows, Bitmap.Config.ARGB_8888).also { fieldBitmap = it }
+            } else {
+                fieldBitmap!!
+            }
+            bitmap.setPixels(field, 0, grid.columns, 0, 0, grid.columns, grid.rows)
+            return bitmap
+        }
+    }
+
+    /** GLES unusable: the field's lit dots on Canvas, the pass's per-dot curves without its unlit grid, halo and rim fade. Main thread only. */
     private class CanvasScope : Renderer {
         override fun DrawScope.draw(field: IntArray, grid: DotScopeGrid, palette: ScopePalette, trace: Pair<ScopeColor, ScopeColor>, dark: Boolean, highContrast: Boolean) {
             val (mainTint, mainCore, alertTint, alertCore) = palette

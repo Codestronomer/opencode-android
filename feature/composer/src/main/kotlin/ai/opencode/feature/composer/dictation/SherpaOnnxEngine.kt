@@ -128,13 +128,13 @@ internal class SherpaOnnxEngine(
                 for (samples in queue) {
                     stream.acceptWaveform(toFloats(samples), TARGET.sampleRate)
                     recognizer.native { while (isReady(stream)) decode(stream) }
-                    val partial = recognizer.native { getResult(stream).text }
+                    val partial = casing(recognizer.native { getResult(stream).text })
                     if (partial.isNotBlank() && partial != lastPartial) {
                         lastPartial = partial
                         channel.trySend(DictationResult(spaced(partial), isFinal = false))
                     }
                     if (recognizer.native { isEndpoint(stream) }) {
-                        val text = recognizer.native { getResult(stream).text }
+                        val text = casing(recognizer.native { getResult(stream).text })
                         if (text.isNotBlank()) {
                             channel.trySend(DictationResult(spaced(text), isFinal = true))
                             hasFinal = true
@@ -146,7 +146,7 @@ internal class SherpaOnnxEngine(
                 val final = recognizer.native {
                     stream.inputFinished()
                     while (isReady(stream)) decode(stream)
-                    getResult(stream).text
+                    casing(getResult(stream).text)
                 }
                 if (final.isNotBlank()) channel.trySend(DictationResult(spaced(final), isFinal = true))
                 channel.close()
@@ -178,6 +178,28 @@ internal class SherpaOnnxEngine(
         val FAILED = -1
 
         fun toFloats(samples: ShortArray): FloatArray = FloatArray(samples.size) { samples[it] / 32768f }
+
+        /**
+         * The streaming zipformer's tokens are LibriSpeech-cased (all caps), so the result is
+         * re-cased here: sentences start capital, the standalone I keeps its capital, the rest
+         * reads lower. Acronyms can't survive this — the model can't tell them from words.
+         */
+        fun casing(text: String): String {
+            if (text.isBlank()) return text
+            val lowered = text.lowercase().replace(Regex("\\bi\\b")) { "I" }
+            val out = StringBuilder(lowered)
+            var cap = true
+            for (i in out.indices) {
+                val ch = out[i]
+                if (cap && ch.isLetter()) {
+                    out[i] = ch.uppercaseChar()
+                    cap = false
+                } else if (ch == '.' || ch == '!' || ch == '?') {
+                    cap = true
+                }
+            }
+            return out.toString()
+        }
 
         fun sherpaConfig(encoder: String, decoder: String, joiner: String, tokens: String) =
             OnlineRecognizerConfig(

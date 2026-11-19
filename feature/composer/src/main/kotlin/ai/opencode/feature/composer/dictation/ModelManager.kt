@@ -36,6 +36,10 @@ internal class ModelManager(private val context: Context, private val http: OkHt
     suspend fun ensureDownloaded() = withContext(Dispatchers.IO) {
         directory.mkdirs()
         val deadline = System.currentTimeMillis() + DOWNLOAD_BUDGET
+        // A model upgrade leaves the previous revision's files behind: remove them, the
+        // new names are what counts.
+        val current = FILES.mapTo(mutableSetOf()) { it.name }
+        directory.listFiles()?.forEach { if (it.name !in current) it.delete() }
         for (file in FILES) {
             val target = File(directory, file.name)
             if (target.length() >= file.minimumBytes) continue
@@ -117,37 +121,40 @@ internal class ModelManager(private val context: Context, private val http: OkHt
 
     private companion object {
         const val TOKENS = "tokens.txt"
-        const val DECODER = "decoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx"
-        const val JOINER = "joiner-epoch-99-avg-1-chunk-16-left-64.int8.onnx"
-        const val ENCODER = "encoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx"
+        const val DECODER = "decoder-epoch-99-avg-1.int8.onnx"
+        const val JOINER = "joiner-epoch-99-avg-1.int8.onnx"
+        const val ENCODER = "encoder-epoch-99-avg-1.int8.onnx"
 
-        // Streaming Zipformer English, int8, chunk 16 left 64, pinned revision of the HF repo
-        // (2023-06-26); the byte counts below are that revision's file sizes, used as minimum
-        // sanity checks. Small files first, so a partial download keeps what it got.
+        // Streaming Zipformer English (LibriSpeech + GigaSpeech — broader real-world speech
+        // than the 2023-06-26 LibriSpeech-only model this replaces, which tested poorly on
+        // spontaneous phone speech), int8, full streaming context, pinned revision of the HF
+        // repo (2023-06-21); the byte counts are that revision's sizes, used as minimum
+        // sanity checks. The larger encoder trades a longer first download for roughly half
+        // the real-world error. Small files first, so a partial download keeps what it got.
         val FILES = listOf(
             ModelFile(
                 TOKENS,
-                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/$TOKENS",
+                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21/resolve/main/$TOKENS",
                 5_048,
             ),
             ModelFile(
                 DECODER,
-                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/$DECODER",
-                1_307_236,
+                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21/resolve/main/$DECODER",
+                539_246,
             ),
             ModelFile(
                 JOINER,
-                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/$JOINER",
+                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21/resolve/main/$JOINER",
                 259_335,
             ),
             ModelFile(
                 ENCODER,
-                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/$ENCODER",
-                71_082_637,
+                "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21/resolve/main/$ENCODER",
+                187_823_992,
             ),
         )
         val MAX_ATTEMPTS = 3
-        val DOWNLOAD_BUDGET = 5L * 60 * 1000
+        val DOWNLOAD_BUDGET = 15L * 60 * 1000
         val BACKOFF = 2_000L
         val LOG_EVERY_BYTES = 16L * 1024 * 1024
 

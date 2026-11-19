@@ -48,6 +48,7 @@ object GlPixel {
             }
             init.await()
             if (!ok) {
+                AppLog.app.error("gl_unavailable init_failed")
                 failed = true
                 return null
             }
@@ -113,7 +114,6 @@ class GlPass(private val fragmentSource: String) {
     private var targetWidth = 0
     private var targetHeight = 0
     private val locations = mutableMapOf<String, Int>()
-    private var bitmap: Bitmap? = null
     private var pixels: ByteBuffer? = null
 
     /** The FBO texture (valid on the shared GL context), for parent passes sampling children. */
@@ -129,14 +129,23 @@ class GlPass(private val fragmentSource: String) {
      * uniform values (call [location] then `GLES30.glUniform*`), and reads the result back.
      * The returned bitmap is reused across frames of the same size — draw it, don't cache it.
      */
-    fun render(width: Int, height: Int, setUniforms: (GlPass) -> Unit): Bitmap? =
-        GlPixel.run {
-            if (failed || width <= 0 || height <= 0) return@run null
+    /**
+     * Renders at [width]×[height] device pixels with [setUniforms] wiring this frame's
+     * uniform values (call [location] then `GLES30.glUniform*`), and reads the result back
+     * into [pixels]. The GL thread does nothing but GL; the caller turns the buffer into a
+     * bitmap on its own thread (`Bitmap.createBitmap` + `copyPixelsFromBuffer` from the GL
+     * thread corrupted the ART heap under the emulator's CheckJNI). Returns false when GL
+     * is unusable — the caller falls back.
+     */
+    fun render(width: Int, height: Int, setUniforms: (GlPass) -> Unit): Boolean {
+        return GlPixel.run {
+            if (failed || width <= 0 || height <= 0) return@run false
             if (program == 0) {
                 program = compile()
                 if (program == 0) {
+                    AppLog.app.error("gl_shader_compile_failed")
                     failed = true
-                    return@run null
+                    return@run false
                 }
             }
             if (width != targetWidth || height != targetHeight) resize(width, height)
@@ -149,14 +158,20 @@ class GlPass(private val fragmentSource: String) {
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 3)
             val buffer = pixels!!
             GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
-            buffer.rewind()
-            bitmap!!.copyPixelsFromBuffer(buffer)
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-            bitmap
-        } ?: run {
-            failed = true
-            null
-        }
+            true
+        } ?: false
+    }
+
+    /** The frame's pixels, as the bitmap the caller composites. UI thread only. */
+    fun bitmap(width: Int, height: Int): Bitmap? {
+        // TEST (b): the copy's source is a fresh array, not the GL-touched buffer.
+        val buffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+        buffer.rewind()
+        val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        out.copyPixelsFromBuffer(buffer)
+        return out
+    }
 
     private fun compile(): Int {
         val vertex = shader(GLES30.GL_VERTEX_SHADER, VERTEX) ?: return 0
@@ -169,18 +184,26 @@ class GlPass(private val fragmentSource: String) {
         GLES30.glGetProgramiv(program, GLES30.GL_LINK_STATUS, linked, 0)
         GLES30.glDeleteShader(vertex)
         GLES30.glDeleteShader(fragment)
-        if (linked[0] != GLES30.GL_TRUE) return 0
+        if (linked[0] != GLES30.GL_TRUE) {
+            AppLog.app.error("gl_link_error ${GLES30.glGetProgramInfoLog(program).trim()}")
+            return 0
+        }
         AppLog.app.info("gl_shader_linked len=${fragmentSource.length}")
         return program
     }
 
     private fun shader(type: Int, source: String): Int {
         val shader = GLES30.glCreateShader(type)
-        GLES30.glShaderSource(shader, source)
+        GLES30.glShaderSource(shader, source.trim())
         GLES30.glCompileShader(shader)
         val compiled = IntArray(1)
         GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, compiled, 0)
-        return if (compiled[0] == GLES30.GL_TRUE) shader else 0
+        if (compiled[0] != GLES30.GL_TRUE) {
+            AppLog.app.error("gl_compile_error ${GLES30.glGetShaderInfoLog(shader).trim()}")
+            GLES30.glDeleteShader(shader)
+            return 0
+        }
+        return shader
     }
 
     private fun resize(width: Int, height: Int) {
@@ -200,8 +223,6 @@ class GlPass(private val fragmentSource: String) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         targetWidth = width
         targetHeight = height
-        pixels?.let { bitmap?.recycle() }
-        bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         pixels = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
     }
 }

@@ -240,11 +240,17 @@ fun AgentMessageRevealLight(light: Double, corners: UserSurfaceCorners = UserSur
  * The reveal light's renderer, one per API level: the AGSL pass on 33+, and on Android 12
  * the same maths ported to GLSL ES 3.0, rendered off-screen by the shared GLES context
  * ([GlPass]) and composited as a bitmap. Only if GLES is unusable there does the glow fall
- * back to the Canvas approximation.
+ * back to the Canvas approximation. [force] pins a renderer for the shader lab's side-by-side
+ * golden diff; production callers take the default (null).
  */
-internal class AgentRevealGlow {
-    private val renderer: Renderer =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslGlow() else GlGlow()
+class AgentRevealGlow(private val force: Mode? = null) {
+    enum class Mode { Agsl, Gl }
+
+    private val renderer: Renderer = when {
+        force == Mode.Gl -> GlGlow()
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> AgslGlow()
+        else -> GlGlow()
+    }
 
     fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
         with(renderer) { draw(light, corners, dark) }
@@ -286,7 +292,9 @@ internal class AgentRevealGlow {
             val (lift, glow) = AgentMessageReveal.colors(dark)
             val full = TranscriptMetrics.bubbleCornerRadius.value
             val tight = UserMessageRun.tightRadius.value
-            val bitmap = pass.render(ceil(size.width).toInt(), ceil(size.height).toInt()) { gl ->
+            val width = ceil(size.width).toInt()
+            val height = ceil(size.height).toInt()
+            val rendered = pass.render(width, height) { gl ->
                 GLES30.glUniform2f(gl.location("size"), size.width, size.height)
                 GLES30.glUniform4f(gl.location("radii"), full, full, if (corners.top) tight else full, if (corners.bottom) tight else full)
                 GLES30.glUniform1f(gl.location("density"), density)
@@ -295,6 +303,7 @@ internal class AgentRevealGlow {
                 GLES30.glUniform1f(gl.location("fillLift"), (AgentMessageReveal.fillLift * light).toFloat())
                 GLES30.glUniform1f(gl.location("innerGlow"), (AgentMessageReveal.innerGlow * light).toFloat())
             }
+            val bitmap = if (rendered) pass.bitmap(width, height) else null
             if (bitmap == null) {
                 with(canvas) { draw(light, corners, dark) }
             } else {
@@ -324,15 +333,15 @@ internal class AgentRevealGlow {
             val falloff = 7.dp.toPx()
             val frameBlur = blurFor(falloff)
             if (pathSize != size || pathCorners != corners) {
-                // addRoundRect's radii are (topLeft, topRight, bottomRight, bottomLeft).
+                // addRoundRect's radii are four (x, y) pairs: tl, tr, br, bl.
                 path.reset()
                 path.addRoundRect(
                     android.graphics.RectF(0f, 0f, size.width, size.height),
                     floatArrayOf(
-                        full,
-                        if (corners.top) tight else full,
-                        if (corners.bottom) tight else full,
-                        full,
+                        full, full,
+                        if (corners.top) tight else full, if (corners.top) tight else full,
+                        if (corners.bottom) tight else full, if (corners.bottom) tight else full,
+                        full, full,
                     ),
                     android.graphics.Path.Direction.CW,
                 )

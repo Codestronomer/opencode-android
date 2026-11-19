@@ -9,6 +9,7 @@ import ai.opencode.core.ui.OpenCodeTheme
 import ai.opencode.feature.settings.onboarding.OnboardingPlaygroundFeature.Phase
 import ai.opencode.feature.settings.onboarding.OnboardingPlaygroundFeature.Variant
 import android.graphics.RuntimeShader
+import android.os.Build
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -105,7 +107,8 @@ internal data class SignalFieldScene(
  * The full-screen LED field behind the onboarding: a fixed grid of dots, the EKG trace, scan
  * ripples, the server's answering ripple and the heartbeat wipe, in one AGSL pass. Text and
  * controls stay Compose above it. Still under Reduce Motion: drawn only when the scene changes.
- * Paused while the screen isn't resumed.
+ * Paused while the screen isn't resumed. On Android 12 (below API 33) the AGSL pass doesn't exist
+ * and the field draws nothing.
  */
 @Composable
 internal fun SignalFieldView(scene: SignalFieldScene, modifier: Modifier = Modifier) {
@@ -119,7 +122,9 @@ internal fun SignalFieldView(scene: SignalFieldScene, modifier: Modifier = Modif
     // The frame clock (seconds), written by the loop and read only while drawing.
     val frameTime = remember { mutableDoubleStateOf(0.0) }
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    val running = !reduceMotion && lifecycle.isAtLeast(Lifecycle.State.RESUMED)
+    // Below API 33 the field draws nothing (SignalFieldLayer), so its frame loop doesn't run either.
+    val running = !reduceMotion && lifecycle.isAtLeast(Lifecycle.State.RESUMED) &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
     val frameDuration = rememberFrameDurationSeconds()
 
     LaunchedEffect(running) {
@@ -136,18 +141,49 @@ internal fun SignalFieldView(scene: SignalFieldScene, modifier: Modifier = Modif
             .fillMaxSize()
             .clearAndSetSemantics { }
             .drawWithCache {
-                val shader = RuntimeShader(SignalFieldShaderSource)
-                val brush = ShaderBrush(shader)
+                val layer = SignalFieldLayer()
                 onDrawBehind {
                     renderer.isDark = isDark
                     renderer.highContrast = highContrast
                     renderer.isStill = isStill
-                    if (renderer.draw(shader, currentScene, frameTime.doubleValue, size.width, size.height, density)) {
-                        drawRect(brush)
-                    }
+                    with(layer) { draw(renderer, currentScene, frameTime.doubleValue) }
                 }
             },
     )
+}
+
+/**
+ * The field's renderer, one per API level. `RuntimeShader` (API 33) doesn't exist on Android 12,
+ * and the field is a backdrop behind content that exists without it — the pages' text and controls
+ * are Compose above it — so there it draws nothing.
+ */
+internal class SignalFieldLayer {
+    private val renderer: Renderer =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslField() else BlankField()
+
+    fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double) {
+        with(renderer) { draw(field, scene, now) }
+    }
+
+    private interface Renderer {
+        fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double)
+    }
+
+    /** The AGSL pass, API 33+, unchanged. */
+    private class AgslField : Renderer {
+        private val shader = RuntimeShader(SignalFieldShaderSource)
+        private val brush = ShaderBrush(shader)
+
+        override fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double) {
+            if (field.draw(shader, scene, now, size.width, size.height, density)) {
+                drawRect(brush)
+            }
+        }
+    }
+
+    private class BlankField : Renderer {
+        override fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double) {}
+    }
 }
 
 /**

@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.RuntimeShader
 import android.graphics.Shader
+import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -15,6 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.lifecycle.Lifecycle
@@ -27,6 +30,7 @@ import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -37,7 +41,8 @@ import kotlin.math.sqrt
  *
  * One AGSL [RuntimeShader] rect ([ConnectionScopeShaders]) over the CPU-lit field, ticked at 30
  * fps. It stops drawing off screen and when the app isn't resumed; under reduce motion it's a still
- * trace redrawn only when the status changes.
+ * trace redrawn only when the status changes. On Android 12 (below API 33) the AGSL pass doesn't
+ * exist and the lit dots draw from the same field on Canvas.
  */
 @Composable
 fun ConnectionScopeView(monitor: ConnectionMonitor, isHidden: Boolean, modifier: Modifier = Modifier) {
@@ -166,12 +171,9 @@ internal class ConnectionScopeRenderer {
     var highContrast = false
 
     private val raster = ConnectionTraceRaster()
-    private val shader = RuntimeShader(ConnectionScopeShaders.CONNECTION_SCOPE_FRAGMENT)
-    private val brush = ShaderBrush(shader)
+    private val renderer: Renderer =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslScope() else CanvasScope()
     private var grid: DotScopeGrid? = null
-    /** Two fields, alternated per frame, so the render thread never reads one being written. */
-    private var fields: List<Pair<Bitmap, BitmapShader>> = emptyList()
-    private var frameIndex = 0
     private var pixels = IntArray(0)
     private var lastFrame: Double? = null
     /** The trace's colour now, easing toward the status's ([ConnectionTraceTint]). */
@@ -191,22 +193,12 @@ internal class ConnectionScopeRenderer {
         if (next != grid) {
             grid = next
             pixels = IntArray(next.count)
-            fields = List(2) {
-                val bitmap = Bitmap.createBitmap(next.columns, next.rows, Bitmap.Config.ARGB_8888)
-                bitmap to BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
-                    filterMode = BitmapShader.FILTER_MODE_NEAREST
-                }
-            }
-            frameIndex = 0
         }
         return grid
     }
 
     fun draw(scope: DrawScope, monitor: ConnectionMonitor) {
         val grid = prepareGrid(scope) ?: return
-        if (fields.isEmpty()) return
-        val (bitmap, fieldShader) = fields[frameIndex]
-        frameIndex = (frameIndex + 1) % fields.size
 
         val now = monitor.now()
         val elapsed = min(0.1, now - (lastFrame ?: now))
@@ -225,19 +217,100 @@ internal class ConnectionScopeRenderer {
         }
 
         raster.render(monitor.health, grid, now, elapsed, isStill, highContrast, pixels)
-        bitmap.setPixels(pixels, 0, grid.columns, 0, 0, grid.columns, grid.rows)
-        shader.setInputShader("field", fieldShader)
+        with(renderer) { scope.draw(pixels, grid, palette, trace!!, isDark, highContrast) }
+    }
 
-        val (main, mainCore) = trace!!
-        shader.setFloatUniform("grid", grid.pitch, grid.columns.toFloat(), grid.rows.toFloat(), grid.scale)
-        shader.setFloatUniform("origin", grid.originX, grid.originY, grid.width, grid.height)
-        shader.setFloatUniform("state", if (isDark) 1f else 0f, if (highContrast) 1.3f else 1f, FIELD_SCALE, 0f)
-        shader.setFloatUniform("window", windowInset, windowFade, windowInset, cornerRadius)
-        shader.setFloatUniform("mainTint", main.r, main.g, main.b, main.a)
-        shader.setFloatUniform("mainCore", mainCore.r, mainCore.g, mainCore.b, mainCore.a)
-        shader.setFloatUniform("alertTint", palette.alert.r, palette.alert.g, palette.alert.b, palette.alert.a)
-        shader.setFloatUniform("alertCore", palette.alertCore.r, palette.alertCore.g, palette.alertCore.b, palette.alertCore.a)
-        scope.drawRect(brush)
+    /** Where the lit field draws: the AGSL pass on 33+, its dot curves on Canvas below. */
+    private interface Renderer {
+        fun DrawScope.draw(field: IntArray, grid: DotScopeGrid, palette: ScopePalette, trace: Pair<ScopeColor, ScopeColor>, dark: Boolean, highContrast: Boolean)
+    }
+
+    /** The AGSL pass, API 33+, unchanged: the field as a `BitmapShader` child. */
+    private class AgslScope : Renderer {
+        private val shader = RuntimeShader(ConnectionScopeShaders.CONNECTION_SCOPE_FRAGMENT)
+        private val brush = ShaderBrush(shader)
+        private var fieldGrid: DotScopeGrid? = null
+        /** Two fields, alternated per frame, so the render thread never reads one being written. */
+        private var fields: List<Pair<Bitmap, BitmapShader>> = emptyList()
+        private var frameIndex = 0
+
+        override fun DrawScope.draw(field: IntArray, grid: DotScopeGrid, palette: ScopePalette, trace: Pair<ScopeColor, ScopeColor>, dark: Boolean, highContrast: Boolean) {
+            if (fieldGrid != grid) {
+                fieldGrid = grid
+                fields = List(2) {
+                    val bitmap = Bitmap.createBitmap(grid.columns, grid.rows, Bitmap.Config.ARGB_8888)
+                    bitmap to BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+                        filterMode = BitmapShader.FILTER_MODE_NEAREST
+                    }
+                }
+                frameIndex = 0
+            }
+            val (bitmap, fieldShader) = fields[frameIndex]
+            frameIndex = (frameIndex + 1) % fields.size
+
+            bitmap.setPixels(field, 0, grid.columns, 0, 0, grid.columns, grid.rows)
+            shader.setInputShader("field", fieldShader)
+
+            val (main, mainCore) = trace
+            shader.setFloatUniform("grid", grid.pitch, grid.columns.toFloat(), grid.rows.toFloat(), grid.scale)
+            shader.setFloatUniform("origin", grid.originX, grid.originY, grid.width, grid.height)
+            shader.setFloatUniform("state", if (dark) 1f else 0f, if (highContrast) 1.3f else 1f, FIELD_SCALE, 0f)
+            shader.setFloatUniform("window", windowInset, windowFade, windowInset, cornerRadius)
+            shader.setFloatUniform("mainTint", main.r, main.g, main.b, main.a)
+            shader.setFloatUniform("mainCore", mainCore.r, mainCore.g, mainCore.b, mainCore.a)
+            shader.setFloatUniform("alertTint", palette.alert.r, palette.alert.g, palette.alert.b, palette.alert.a)
+            shader.setFloatUniform("alertCore", palette.alertCore.r, palette.alertCore.g, palette.alertCore.b, palette.alertCore.a)
+            drawRect(brush)
+        }
+    }
+
+    /** API < 33: the field's lit dots on Canvas, the AGSL pass's per-dot curves without its unlit grid, halo and rim fade. Main thread only. */
+    private class CanvasScope : Renderer {
+        override fun DrawScope.draw(field: IntArray, grid: DotScopeGrid, palette: ScopePalette, trace: Pair<ScopeColor, ScopeColor>, dark: Boolean, highContrast: Boolean) {
+            val (mainTint, mainCore, alertTint, alertCore) = palette
+            val top = if (dark) 0.96f else 1.0f
+            val powExp = if (dark) 0.9f else 0.75f
+            for (column in 0 until grid.columns) {
+                val x = (grid.originX + (column + 0.5f) * grid.pitch) / grid.scale
+                val t = (min(x - windowInset, (grid.width - x) - windowInset) / max(windowFade, 1f)).coerceIn(0f, 1f)
+                val win = t * t * (3f - 2f * t)
+                if (win <= 0f) continue
+                for (row in 0 until grid.rows) {
+                    val pixel = field[row * grid.columns + column]
+                    val alert = ((pixel ushr 16) and 0xFF) / 255f * FIELD_SCALE
+                    val main = ((pixel ushr 8) and 0xFF) / 255f * FIELD_SCALE
+                    if (alert <= 0f && main <= 0f) continue
+                    val tot = alert + main
+                    val p = 1f - (1f - min(alert, 1f)) * (1f - min(main, 1f))
+                    val fresh = (pixel and 0xFF) / 255f
+                    val alpha = top * max(p, 1e-5f).pow(powExp * mix(1.4f, 1f, fresh))
+                    val radius = (0.25f + 0.17f * max(p, 1e-5f).pow(0.6f)) *
+                        mix(1f, mix(0.82f, 1f, fresh), smoothstep(0.03f, 0.2f, p)) * grid.pitch
+                    val core = (p * p * 1.1f).coerceIn(0f, 0.9f) * mix(0.3f, 1f, fresh)
+                    val own = if (tot > 0.02f) alert / tot else 0f
+                    val dot = mix(
+                        mix(mainTint, mainCore, core),
+                        mix(alertTint, alertCore, core),
+                        own,
+                    )
+                    drawCircle(
+                        Color(dot.r, dot.g, dot.b, dot.a),
+                        (radius - 0.5f).coerceAtLeast(0f),
+                        Offset(grid.originX + (column + 0.5f) * grid.pitch, grid.originY + (row + 0.5f) * grid.pitch),
+                        alpha * win,
+                    )
+                }
+            }
+        }
+
+        private fun mix(a: Float, b: Float, t: Float): Float = a + (b - a) * t
+
+        private fun mix(a: ScopeColor, b: ScopeColor, t: Float): ScopeColor = a + (b - a) * t
+
+        private fun smoothstep(a: Float, b: Float, x: Float): Float {
+            val t = ((x - a) / (b - a)).coerceIn(0f, 1f)
+            return t * t * (3f - 2f * t)
+        }
     }
 }
 

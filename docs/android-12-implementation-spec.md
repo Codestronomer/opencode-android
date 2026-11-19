@@ -163,12 +163,16 @@ merges manifests with zero lint failures, **installs and runs on an API 31 emula
 (`INSTALL_FAILED_OLDER_SDK` with the unflipped APK is the on-device proof of the bug being
 fixed). Emulators: `OpenCode_API_31` (Pixel profile) and `OpenCode_API_36` (repo default).
 
-Next batch:
-1. Push all branches → CI confirmation (local gate already green).
-2. WP-06 `PredictiveBackSynthesizer` — **done** — `a12/predictive-back` `dae14952`
-   (core/ui synthesizer reusing `BackSwipeRules`; media viewer wired; `:feature:media`
-   check.sh PASS; preview build running on the API 31 emulator for hands-on QA).
-3. WP-07 `DictationEngine` + sherpa-onnx.
-4. WP-08 appcompat locales.
-5. WP-01 minSdk flip **last** — dry run already clean (assemble + manifest merge; the
-   formal gate is lint `NewApi` on the full check).
+Next batch (in flight — five parallel lanes, all build-verified locally):
+1. WP-05 shader **rollout** (the WP-01 lint gate surfaced the remaining unguarded
+   `RuntimeShader` sites): three agents — voice (`a12/shader-voice`), session+drawer
+   (`a12/shader-session`), settings (`a12/shader-settings`), all branched from
+   `android-12`, each following the committed `AgentRevealGlow` pilot seam.
+2. WP-01 flip (`a12/build-floor`) — first NewApi finding fixed (`URLDecoder.decode`
+   Charset overload, the one site static analysis couldn't pattern-match); re-gating
+   after the shader rollout merges.
+3. WP-07 `DictationEngine` + sherpa-onnx (`a12/asr`, from `a12/dictation`).
+4. WP-08 per-app language (`a12/locales`) — scope shrank: the in-app picker already
+   exists; `AppLanguageClient` is LocaleManager-based (33+) and needs the appcompat
+   backport for <33, plus the AppCompatActivity/theme change.
+5. Then: merge all lanes → `android-12`, re-gate the flip, final emulator install.

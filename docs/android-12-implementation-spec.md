@@ -199,6 +199,12 @@ Remaining (outside this machine's reach):
   let's see if my speech is cupboard or not" — casing clean, accuracy good with a
   documented residual on accented free speech (model tier; the seam accepts better
   models: beam search / hotwords / SenseVoice are the next levers).
+- **WP-08 verified end-to-end on an API 31 emulator with the finished build**: the
+  in-app picker lists all languages, picking Deutsch recreates the activity fully
+  localized (Sprache / Vorgeschlagen / Alle Sprachen, check state persisted through
+  appcompat's storage), System Default restores English. Zero crashes across the
+  round trip. The only QA surface left untested is the media-viewer edge-swipe back
+  preview (needs a session with media, manual).
 - APK size closed: `ndk.abiFilters = arm64-v8a` (249 → 137 MB) — also what unblocked the
   install on the storage-full device (`INSTALL_FAILED_INSUFFICIENT_STORAGE`); a Play
   release wanting other ABIs should move to splits / Play Asset Delivery.

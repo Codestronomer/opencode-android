@@ -2,8 +2,6 @@ package ai.opencode.feature.session.agentactivity
 
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -11,7 +9,7 @@ import kotlin.math.roundToInt
 
 /**
  * Draws the orb: its soft radial glow, then each dot with its white-hot core and a faint halo, in
- * one GPU pass via [AgentActivityShaders.orbShader].
+ * one GPU pass via [AgentActivityShaders.orbRenderer] on 33+.
  */
 object AgentActivityOrb {
     /** The glow's spill past the layout box, in the box's own unit. */
@@ -192,7 +190,7 @@ object AgentActivityOrb {
 
     /**
      * Draws [field] centred on this scope's square layout box, its glow spilling [margin] past it.
-     * Nothing when [field] is null. Main thread only (shared shader).
+     * Nothing when [field] is null. Main thread only (shared renderer).
      */
     fun DrawScope.drawOrb(field: GyroField?, cells: List<GyroCell> = GyroCell.seven, dark: Boolean) {
         field ?: return
@@ -201,17 +199,8 @@ object AgentActivityOrb {
         val m = margin(sizeDp) * density
         val side = box + 2 * m
         val packed = pack(field, cells, area = side, size = sizeDp, density = density, dark = dark, out = scratch)
-        val shader = AgentActivityShaders.orbShader
-        shader.setFloatUniform("header0", packed.header0)
-        shader.setFloatUniform("header1", packed.header1)
-        shader.setFloatUniform("glowRGB", packed.glowRGB)
-        shader.setFloatUniform("neutral", packed.neutral)
-        shader.setFloatUniform("neutralCore", packed.neutralCore)
-        shader.setFloatUniform("accent", packed.accent)
-        shader.setFloatUniform("accentCore", packed.accentCore)
-        shader.setFloatUniform("cells", packed.cells)
         translate((size.width - box) / 2 - m, (size.height - box) / 2 - m) {
-            drawIntoCanvas { it.nativeCanvas.drawRect(0f, 0f, side, side, AgentActivityShaders.orbPaint) }
+            with(AgentActivityShaders.orbRenderer) { draw(packed, side) }
         }
     }
 }

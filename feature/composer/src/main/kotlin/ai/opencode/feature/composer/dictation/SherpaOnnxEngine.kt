@@ -46,16 +46,27 @@ internal class SherpaOnnxEngine(
     private val mutex = Mutex()
     private var recognizer: OnlineRecognizer? = null
 
+    /** Owns the download so a released mic press can't cancel it; the next press joins it. */
+    private val downloads = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var download: Job? = null
+
     override suspend fun loadModel(install: Boolean): DictationModel {
         if (!models.isPresent()) {
             // Warming up never downloads: the first press that needs the model fetches it.
             if (!install) throw DictationModelNotInstalled()
+            // The download outlives the press — nobody holds a mic button for a 188 MB
+            // download — so a released press cancels only its wait. The next press joins
+            // the still-running job (checkpoint resume covers what landed).
+            val job = download ?: downloads.launch { runCatching { models.ensureDownloaded() } }
+                .also { download = it }
             try {
-                models.ensureDownloaded()
+                job.join()
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (error: Exception) {
-                AppLog.voice.error("dictation_model_unavailable type=${error.javaClass.simpleName}")
+            }
+            if (!models.isPresent()) {
+                // The download genuinely failed: platform fallback for this press.
+                AppLog.voice.error("dictation_model_unavailable")
                 return platform().loadModel(install)
             }
         }

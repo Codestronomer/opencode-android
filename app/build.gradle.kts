@@ -70,6 +70,8 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material3.adaptive)
     implementation(libs.androidx.activity.compose)
+    // Per-app language on Android 12: MainActivity hosts Compose in AppCompatActivity (docs/android-12-support.md §9.5).
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.navigation3.runtime)

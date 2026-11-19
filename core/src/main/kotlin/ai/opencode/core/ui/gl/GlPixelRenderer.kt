@@ -1,0 +1,216 @@
+package ai.opencode.core.ui.gl
+
+import android.graphics.Bitmap
+import android.opengl.EGL14
+import android.opengl.EGLConfig
+import android.opengl.EGLContext
+import android.opengl.EGLDisplay
+import android.opengl.EGLSurface
+import android.opengl.GLES30
+import android.os.Handler
+import ai.opencode.core.log.AppLog
+import android.os.HandlerThread
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.concurrent.CountDownLatch
+
+/**
+ * Off-screen GLES 3.0 rendering for the Android 12 shader ports (docs/android-12-support.md
+ * §10.2): Android 12 has no `RuntimeShader` (AGSL is API 33), so the ported GLSL runs here —
+ * one shared EGL context on its own thread, one FBO per [GlPass] sized to the draw, pixels
+ * read back into a reusable premultiplied `ARGB_8888` bitmap that a Compose draw composites
+ * like the AGSL brush did. GLES 3.0 is guaranteed on every device this fork installs on.
+ *
+ * All GL work happens on the shared thread; [GlPass.render] blocks the caller for the frame
+ * (the AGSL path is equally synchronous inside the draw). A pass's FBO texture stays alive
+ * after the readback, so parent passes can sample child passes' output
+ * (`uniform shader` ports) by name through [GlPass.texture].
+ */
+object GlPixel {
+    private val thread = HandlerThread("shader-gl").apply { start() }
+    private val handler = Handler(thread.looper)
+    private var ready = false
+    private var failed = false
+
+    private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
+    private var context: EGLContext = EGL14.EGL_NO_CONTEXT
+    private var pbuffer: EGLSurface = EGL14.EGL_NO_SURFACE
+
+    /** Runs [block] with the shared context current; null once GL is unusable. */
+    fun <T> run(block: () -> T): T? {
+        if (failed) return null
+        if (!ready) {
+            val init = CountDownLatch(1)
+            var ok = false
+            handler.post {
+                ok = initEgl()
+                init.countDown()
+            }
+            init.await()
+            if (!ok) {
+                failed = true
+                return null
+            }
+            ready = true
+        }
+        val latch = CountDownLatch(1)
+        var result: T? = null
+        handler.post {
+            try {
+                result = block()
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await()
+        return result
+    }
+
+    private fun initEgl(): Boolean = runCatching {
+        display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        if (display == EGL14.EGL_NO_DISPLAY) return false
+        val version = IntArray(2)
+        if (!EGL14.eglInitialize(display, version, 0, version, 1)) return false
+        val configAttribs = intArrayOf(
+            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+            // EGL_OPENGL_ES3_BIT (0x40): EGL14 doesn't expose the constant name on all builds.
+            EGL14.EGL_RENDERABLE_TYPE, 0x40,
+            EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8,
+            EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
+            EGL14.EGL_NONE,
+        )
+        val configs = arrayOfNulls<EGLConfig>(1)
+        val counts = IntArray(1)
+        if (!EGL14.eglChooseConfig(display, configAttribs, 0, configs, 0, 1, counts, 0)) return false
+        val config = configs[0] ?: return false
+        context = EGL14.eglCreateContext(
+            display, config, EGL14.EGL_NO_CONTEXT,
+            intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 3, EGL14.EGL_NONE), 0,
+        )
+        if (context == EGL14.EGL_NO_CONTEXT) return false
+        pbuffer = EGL14.eglCreatePbufferSurface(
+            display, config,
+            intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE), 0,
+        )
+        if (pbuffer == EGL14.EGL_NO_SURFACE) return false
+        if (!EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)) return false
+        true
+    }.getOrDefault(false)
+}
+
+/**
+ * One compiled GLSL ES 3.0 program and its FBO. [fragmentSource] is the ported AGSL
+ * (`vec4 main(vec2 position)` → `out fragColor`; coordinates flip Y in the shader's
+ * `main`). [render] draws the fullscreen quad, reads the pixels back and returns a
+ * premultiplied bitmap the caller draws; returns null (and the caller falls back) when
+ * GL is unusable or the program fails to compile.
+ */
+class GlPass(private val fragmentSource: String) {
+    private var program = 0
+    private var failed = false
+    private var fbo = 0
+    private var texture = 0
+    private var targetWidth = 0
+    private var targetHeight = 0
+    private val locations = mutableMapOf<String, Int>()
+    private var bitmap: Bitmap? = null
+    private var pixels: ByteBuffer? = null
+
+    /** The FBO texture (valid on the shared GL context), for parent passes sampling children. */
+    fun texture(): Int = texture
+
+    /** Location of [name], cached; -1 when absent (AGSL ports keep unused uniform names out). */
+    fun location(name: String): Int = locations.getOrPut(name) {
+        GLES30.glGetUniformLocation(program, name)
+    }
+
+    /**
+     * Renders at [width]×[height] device pixels with [setUniforms] wiring this frame's
+     * uniform values (call [location] then `GLES30.glUniform*`), and reads the result back.
+     * The returned bitmap is reused across frames of the same size — draw it, don't cache it.
+     */
+    fun render(width: Int, height: Int, setUniforms: (GlPass) -> Unit): Bitmap? =
+        GlPixel.run {
+            if (failed || width <= 0 || height <= 0) return@run null
+            if (program == 0) {
+                program = compile()
+                if (program == 0) {
+                    failed = true
+                    return@run null
+                }
+            }
+            if (width != targetWidth || height != targetHeight) resize(width, height)
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
+            GLES30.glViewport(0, 0, width, height)
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            GLES30.glUseProgram(program)
+            setUniforms(this)
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 3)
+            val buffer = pixels!!
+            GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
+            buffer.rewind()
+            bitmap!!.copyPixelsFromBuffer(buffer)
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            bitmap
+        } ?: run {
+            failed = true
+            null
+        }
+
+    private fun compile(): Int {
+        val vertex = shader(GLES30.GL_VERTEX_SHADER, VERTEX) ?: return 0
+        val fragment = shader(GLES30.GL_FRAGMENT_SHADER, fragmentSource) ?: return 0
+        val program = GLES30.glCreateProgram()
+        GLES30.glAttachShader(program, vertex)
+        GLES30.glAttachShader(program, fragment)
+        GLES30.glLinkProgram(program)
+        val linked = IntArray(1)
+        GLES30.glGetProgramiv(program, GLES30.GL_LINK_STATUS, linked, 0)
+        GLES30.glDeleteShader(vertex)
+        GLES30.glDeleteShader(fragment)
+        if (linked[0] != GLES30.GL_TRUE) return 0
+        AppLog.app.info("gl_shader_linked len=${fragmentSource.length}")
+        return program
+    }
+
+    private fun shader(type: Int, source: String): Int {
+        val shader = GLES30.glCreateShader(type)
+        GLES30.glShaderSource(shader, source)
+        GLES30.glCompileShader(shader)
+        val compiled = IntArray(1)
+        GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, compiled, 0)
+        return if (compiled[0] == GLES30.GL_TRUE) shader else 0
+    }
+
+    private fun resize(width: Int, height: Int) {
+        if (texture == 0) {
+            val names = IntArray(1)
+            GLES30.glGenTextures(1, names, 0)
+            texture = names[0]
+            GLES30.glGenFramebuffers(1, names, 0)
+            fbo = names[0]
+        }
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
+        GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, texture, 0)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        targetWidth = width
+        targetHeight = height
+        pixels?.let { bitmap?.recycle() }
+        bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        pixels = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+    }
+}
+
+/** The fullscreen quad, attribute-less: three vertices cover the viewport in clip space. */
+private const val VERTEX = """
+#version 300 es
+void main() {
+  vec2 corner = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+"""

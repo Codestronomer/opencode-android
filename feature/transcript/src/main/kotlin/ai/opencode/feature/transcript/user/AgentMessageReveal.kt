@@ -1,5 +1,6 @@
 package ai.opencode.feature.transcript.user
 
+import ai.opencode.core.ui.gl.GlPass
 import ai.opencode.core.motion.rememberReduceMotion
 import ai.opencode.core.ui.OpenCodeTheme
 import ai.opencode.feature.media.TranscriptMetrics
@@ -7,6 +8,7 @@ import ai.opencode.feature.transcript.TranscriptTunables
 import android.graphics.BlurMaskFilter
 import android.graphics.Paint
 import android.graphics.RuntimeShader
+import android.opengl.GLES30
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
@@ -24,11 +26,13 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -159,6 +163,65 @@ half4 main(float2 position) {
 """
 
 /**
+ * The pass above ported to GLSL ES 3.0 for Android 12 (docs/android-12-support.md §10.2):
+ * identical maths, renamed types, and the entry point reads `gl_FragCoord` with the Y
+ * flipped to the AGSL's top-left origin. The output stays premultiplied.
+ */
+private const val AGENT_REVEAL_GLOW_GLSL = """
+#version 300 es
+precision highp float;
+
+uniform vec2 size;
+uniform vec4 radii;
+uniform float density;
+uniform vec4 liftIn;
+uniform vec4 glowIn;
+uniform float fillLift;
+uniform float innerGlow;
+
+out vec4 fragColor;
+
+vec4 glow(vec2 position) {
+  if ((fillLift <= 1e-4 && innerGlow <= 1e-4) || size.x <= 0.0 || size.y <= 0.0) {
+    return vec4(0.0);
+  }
+  // The Metal shader works in points; do the same so the 7 pt falloff matches.
+  vec2 sizePt = size / density;
+  vec2 halfSize = sizePt * 0.5;
+  vec2 p = position / density - halfSize;
+  float r = p.x > 0.0 ? (p.y > 0.0 ? radii.w : radii.z) : (p.y > 0.0 ? radii.y : radii.x);
+  r = min(r, min(halfSize.x, halfSize.y));
+  vec2 q = abs(p) - halfSize + r;
+  vec2 qPos = max(q, 0.0);
+  float cornerDist = r > 1e-3
+    ? pow(pow(qPos.x / r, 2.4) + pow(qPos.y / r, 2.4), 1.0 / 2.4) * r
+    : length(qPos);
+  float sd = min(max(q.x, q.y), 0.0) + cornerDist - r;
+  if (sd >= 0.5) {
+    return vec4(0.0);
+  }
+  float edgeMask = clamp(0.5 - sd, 0.0, 1.0);
+  float depth = max(0.0, -sd);
+
+  float aLift = clamp(fillLift, 0.0, 1.0);
+  vec3 premul = liftIn.rgb * aLift;
+  float alpha = aLift;
+
+  float shoulder = 1.0 - 0.24 * exp(-depth * depth / 5.5);
+  float aGlow = clamp(innerGlow * shoulder * exp(-depth / 7.0), 0.0, 1.0);
+  premul = premul * (1.0 - aGlow) + glowIn.rgb * aGlow;
+  alpha = alpha * (1.0 - aGlow) + aGlow;
+
+  return vec4(premul * edgeMask, alpha * edgeMask);
+}
+
+void main() {
+  vec2 position = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y);
+  fragColor = glow(position);
+}
+"""
+
+/**
  * The light inside the bubble: its fill lifted, and an edge glowing inward. Fills its parent;
  * clipped to the run's corners.
  */
@@ -174,12 +237,14 @@ fun AgentMessageRevealLight(light: Double, corners: UserSurfaceCorners = UserSur
 }
 
 /**
- * The reveal light's renderer, one per API level. `RuntimeShader` (API 33) doesn't exist on
- * Android 12, so there the glow approximates the AGSL pass on Canvas.
+ * The reveal light's renderer, one per API level: the AGSL pass on 33+, and on Android 12
+ * the same maths ported to GLSL ES 3.0, rendered off-screen by the shared GLES context
+ * ([GlPass]) and composited as a bitmap. Only if GLES is unusable there does the glow fall
+ * back to the Canvas approximation.
  */
 internal class AgentRevealGlow {
     private val renderer: Renderer =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslGlow() else CanvasGlow()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslGlow() else GlGlow()
 
     fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
         with(renderer) { draw(light, corners, dark) }
@@ -208,6 +273,33 @@ internal class AgentRevealGlow {
             shader.setFloatUniform("fillLift", (AgentMessageReveal.fillLift * light).toFloat())
             shader.setFloatUniform("innerGlow", (AgentMessageReveal.innerGlow * light).toFloat())
             drawRect(brush)
+        }
+    }
+
+    /** The ported pass on GLES 3.0 (docs/android-12-support.md §10.2); Canvas fallback if GL is unusable. */
+    private class GlGlow : Renderer {
+        private val pass = GlPass(AGENT_REVEAL_GLOW_GLSL)
+        private val canvas by lazy { CanvasGlow() }
+
+        override fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
+            if (light <= 1e-4) return
+            val (lift, glow) = AgentMessageReveal.colors(dark)
+            val full = TranscriptMetrics.bubbleCornerRadius.value
+            val tight = UserMessageRun.tightRadius.value
+            val bitmap = pass.render(ceil(size.width).toInt(), ceil(size.height).toInt()) { gl ->
+                GLES30.glUniform2f(gl.location("size"), size.width, size.height)
+                GLES30.glUniform4f(gl.location("radii"), full, full, if (corners.top) tight else full, if (corners.bottom) tight else full)
+                GLES30.glUniform1f(gl.location("density"), density)
+                GLES30.glUniform4f(gl.location("liftIn"), lift.red, lift.green, lift.blue, lift.alpha)
+                GLES30.glUniform4f(gl.location("glowIn"), glow.red, glow.green, glow.blue, glow.alpha)
+                GLES30.glUniform1f(gl.location("fillLift"), (AgentMessageReveal.fillLift * light).toFloat())
+                GLES30.glUniform1f(gl.location("innerGlow"), (AgentMessageReveal.innerGlow * light).toFloat())
+            }
+            if (bitmap == null) {
+                with(canvas) { draw(light, corners, dark) }
+            } else {
+                drawImage(bitmap.asImageBitmap())
+            }
         }
     }
 

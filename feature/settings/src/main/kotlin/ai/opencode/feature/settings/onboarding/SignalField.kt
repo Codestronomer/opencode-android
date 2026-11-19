@@ -6,9 +6,11 @@ import ai.opencode.core.motion.motionFrameLoop
 import ai.opencode.core.motion.rememberFrameDurationSeconds
 import ai.opencode.core.motion.rememberReduceMotion
 import ai.opencode.core.ui.OpenCodeTheme
+import ai.opencode.core.ui.gl.GlPass
 import ai.opencode.feature.settings.onboarding.OnboardingPlaygroundFeature.Phase
 import ai.opencode.feature.settings.onboarding.OnboardingPlaygroundFeature.Variant
 import android.graphics.RuntimeShader
+import android.opengl.GLES30
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.Lifecycle
@@ -31,6 +34,7 @@ import androidx.lifecycle.compose.currentStateAsState
 import kotlin.math.E
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -108,8 +112,8 @@ internal data class SignalFieldScene(
  * The full-screen LED field behind the onboarding: a fixed grid of dots, the EKG trace, scan
  * ripples, the server's answering ripple and the heartbeat wipe, in one AGSL pass. Text and
  * controls stay Compose above it. Still under Reduce Motion: drawn only when the scene changes.
- * Paused while the screen isn't resumed. On Android 12 (below API 33) the AGSL pass doesn't exist
- * and the field draws nothing.
+ * Paused while the screen isn't resumed. On Android 12 (below API 33) the same pass runs as its
+ * GLSL ES 3.0 port ([SignalFieldLayer.GlField]).
  */
 @Composable
 internal fun SignalFieldView(scene: SignalFieldScene, modifier: Modifier = Modifier) {
@@ -123,9 +127,7 @@ internal fun SignalFieldView(scene: SignalFieldScene, modifier: Modifier = Modif
     // The frame clock (seconds), written by the loop and read only while drawing.
     val frameTime = remember { mutableDoubleStateOf(0.0) }
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    // Below API 33 the field draws nothing (SignalFieldLayer), so its frame loop doesn't run either.
-    val running = !reduceMotion && lifecycle.isAtLeast(Lifecycle.State.RESUMED) &&
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val running = !reduceMotion && lifecycle.isAtLeast(Lifecycle.State.RESUMED)
     val frameDuration = rememberFrameDurationSeconds()
 
     LaunchedEffect(running) {
@@ -154,13 +156,19 @@ internal fun SignalFieldView(scene: SignalFieldScene, modifier: Modifier = Modif
 }
 
 /**
- * The field's renderer, one per API level. `RuntimeShader` (API 33) doesn't exist on Android 12,
- * and the field is a backdrop behind content that exists without it — the pages' text and controls
- * are Compose above it — so there it draws nothing.
+ * The field's renderer, one per API level: the AGSL pass on 33+, and on Android 12 the same
+ * maths ported to GLSL ES 3.0, rendered off-screen by the shared GLES context ([GlPass]) and
+ * composited as a bitmap. [force] pins a renderer for the shader lab's side-by-side golden
+ * diff; production callers take the default (null).
  */
-internal class SignalFieldLayer {
-    private val renderer: Renderer =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslField() else BlankField()
+internal class SignalFieldLayer(private val force: Mode? = null) {
+    enum class Mode { Agsl, Gl }
+
+    private val renderer: Renderer = when {
+        force == Mode.Gl -> GlField()
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> AgslField()
+        else -> GlField()
+    }
 
     fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double) {
         with(renderer) { draw(field, scene, now) }
@@ -177,14 +185,55 @@ internal class SignalFieldLayer {
         private val brush = ShaderBrush(shader)
 
         override fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double) {
-            if (field.draw(shader, scene, now, size.width, size.height, density)) {
+            val uniforms = SignalFieldUniforms()
+            if (field.draw(uniforms, scene, now, size.width, size.height, density)) {
+                uniforms.applyTo(shader)
                 drawRect(brush)
             }
         }
     }
 
-    private class BlankField : Renderer {
-        override fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double) {}
+    /** The ported pass on GLES 3.0 (docs/android-12-support.md §10.2); draws nothing if GL is unusable. */
+    private class GlField : Renderer {
+        private val pass = GlPass(SIGNAL_FIELD_GLSL)
+
+        override fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double) {
+            val width = ceil(size.width).toInt()
+            val height = ceil(size.height).toInt()
+            if (width < 1 || height < 1) return
+            val uniforms = SignalFieldUniforms()
+            if (!field.draw(uniforms, scene, now, size.width, size.height, density)) return
+            if (pass.render(width, height) { gl ->
+                    uniforms.applyTo(gl)
+                    GLES30.glUniform2f(gl.location("uSize"), size.width, size.height)
+                }
+            ) {
+                pass.bitmap(width, height)?.let { drawImage(it.asImageBitmap()) }
+            }
+        }
+    }
+}
+
+/**
+ * One frame's uniform values, by shader name (all vec4), recorded by [SignalFieldRenderer.draw]
+ * and applied to the AGSL pass or the GL port.
+ */
+internal class SignalFieldUniforms {
+    private val values = mutableMapOf<String, FloatArray>()
+
+    fun record(name: String, x: Float, y: Float, z: Float, w: Float) {
+        values[name] = floatArrayOf(x, y, z, w)
+    }
+
+    /** Onto the AGSL pass, API 33+. */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    fun applyTo(shader: RuntimeShader) {
+        for ((name, v) in values) shader.setFloatUniform(name, v[0], v[1], v[2], v[3])
+    }
+
+    /** Onto the GL pass, from its render lambda (the GL thread). */
+    fun applyTo(gl: GlPass) {
+        for ((name, v) in values) GLES30.glUniform4f(gl.location(name), v[0], v[1], v[2], v[3])
     }
 }
 
@@ -255,9 +304,8 @@ internal class SignalFieldRenderer {
         lastFrame = null
     }
 
-    /** Steps to [now] (seconds on the frame clock) and sets [shader]'s uniforms. False draws nothing. */
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    fun draw(shader: RuntimeShader, scene: SignalFieldScene, now: Double, widthPx: Float, heightPx: Float, scale: Float): Boolean {
+    /** Steps to [now] (seconds on the frame clock) and records the uniforms into [out]. False draws nothing. */
+    fun draw(out: SignalFieldUniforms, scene: SignalFieldScene, now: Double, widthPx: Float, heightPx: Float, scale: Float): Boolean {
         val width = widthPx / scale
         val height = heightPx / scale
         if (width <= 1 || height <= 1) return false
@@ -273,7 +321,7 @@ internal class SignalFieldRenderer {
             lastFrame = now
             step(dt, scene)
         }
-        setUniforms(shader, scene, width, height, scale)
+        setUniforms(out, scene, width, height, scale)
         return true
     }
 
@@ -370,8 +418,7 @@ internal class SignalFieldRenderer {
         pendingEcho = null
     }
 
-    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    private fun setUniforms(shader: RuntimeShader, scene: SignalFieldScene, w: Float, h: Float, scale: Float) {
+    private fun setUniforms(out: SignalFieldUniforms, scene: SignalFieldScene, w: Float, h: Float, scale: Float) {
         val ink = when {
             isDark && !highContrast -> floatArrayOf(0.886f, 0.906f, 0.945f)
             isDark -> floatArrayOf(1f, 1f, 1f)
@@ -385,27 +432,27 @@ internal class SignalFieldRenderer {
         val height = OnboardingTunables.heartbeatHeight.toFloat()
         val blip = height * (c.blip.value + max(0.0, c.beat.value)).toFloat()
         val ap = scene.aperture
-        shader.setFloatUniform("grid", pitch, scale, w, h)
-        shader.setFloatUniform("ink", ink[0], ink[1], ink[2], if (isDark) 1f else 0f)
-        shader.setFloatUniform(
+        out.record("grid", pitch, scale, w, h)
+        out.record("ink", ink[0], ink[1], ink[2], if (isDark) 1f else 0f)
+        out.record(
             "field",
             (OnboardingTunables.restingLight * if (highContrast) 1.4 else 1.0).toFloat(),
             OnboardingTunables.glow.toFloat(),
             max(0.0, c.beat.value).toFloat(),
             c.failed.value.toFloat(),
         )
-        shader.setFloatUniform("trace", c.traceLight.value.toFloat(), c.traceY.value.toFloat(), blip, w * 0.5f)
-        shader.setFloatUniform(
+        out.record("trace", c.traceLight.value.toFloat(), c.traceY.value.toFloat(), blip, w * 0.5f)
+        out.record(
             "scan",
             rings,
             ringTravel.toFloat(),
             OnboardingTunables.rippleSpacing.toFloat(),
             if (isStill) 0f else OnboardingTunables.rippleAmplitude.toFloat(),
         )
-        shader.setFloatUniform("aperture", ap.center.x, ap.center.y, min(ap.width, ap.height) / 2, 0f)
-        shader.setFloatUniform("waves", c.found.value.toFloat(), c.reply.value.toFloat(), max(w, h) * 0.85f, c.echo.value.toFloat())
-        shader.setFloatUniform("reply", w * 0.79f, h * 0.2f, 0f, 0f)
-        shader.setFloatUniform("wipe", c.wipe.value.toFloat(), 1 - c.quiet.value.toFloat(), if (isStill) 0f else height, c.fieldLight.value.toFloat())
-        shader.setFloatUniform("band", c.quiet.value.toFloat(), OnboardingTunables.bandHeight.toFloat(), 0f, 0f)
+        out.record("aperture", ap.center.x, ap.center.y, min(ap.width, ap.height) / 2, 0f)
+        out.record("waves", c.found.value.toFloat(), c.reply.value.toFloat(), max(w, h) * 0.85f, c.echo.value.toFloat())
+        out.record("reply", w * 0.79f, h * 0.2f, 0f, 0f)
+        out.record("wipe", c.wipe.value.toFloat(), 1 - c.quiet.value.toFloat(), if (isStill) 0f else height, c.fieldLight.value.toFloat())
+        out.record("band", c.quiet.value.toFloat(), OnboardingTunables.bandHeight.toFloat(), 0f, 0f)
     }
 }

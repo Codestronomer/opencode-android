@@ -9,6 +9,7 @@ import ai.opencode.core.strings.localized
 import ai.opencode.core.ui.AppearanceColorScheme
 import ai.opencode.core.ui.OpenCodeAppTheme
 import ai.opencode.core.ui.OpenCodeTheme
+import ai.opencode.core.ui.PredictiveBackSynthesizer
 import ai.opencode.core.ui.rememberAppAppearance
 import android.app.Activity
 import android.content.Context
@@ -1321,74 +1322,83 @@ internal fun MediaViewerHost(
 
     val dark = MediaPresenter.isDarkRoom(isMedia)
     val page = !isMedia && !reducesMotion
-    Box(
-        Modifier
-            .fillMaxSize()
-            .onGloballyPositioned { coordinates ->
-                controller.originInWindow = coordinates.positionInWindow()
-                val size = coordinates.size
-                val rect = Rect(Offset.Zero, Size(size.width.toFloat(), size.height.toFloat()))
-                if (controller.bounds != rect) controller.bounds = rect
-            }
-            .graphicsLayer { alpha = controller.viewAlpha }
-            .semantics { paneTitle = screenName }
-            .pointerInput(controller) { trackPointer(controller) }
-            .pointerInput(controller) { dismissDrag(controller, slop, fromContent = false) }
-            .pointerInput(controller) { dismissDrag(controller, slop, fromContent = true) }
-            .nestedScroll(controller.documentDismissConnection),
+    PredictiveBackSynthesizer(
+        enabled = !controller.isLeaving,
+        onStarted = { controller.backBegan() },
+        onProgressed = { progress, fromRightEdge -> controller.backProgressed(progress, fromRightEdge) },
+        onCancelled = { controller.backCancelled() },
+        onInvoked = { controller.backCommitted() },
     ) {
-        if (!page) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = controller.backdropAlpha }
-                    .background(Color.Black),
-            )
-        }
-        val themed: @Composable () -> Unit = {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        val placement = controller.layerPlacement()
-                        alpha = placement.alpha
-                        scaleX = placement.scale
-                        scaleY = placement.scale
-                        translationX = placement.offset.x
-                        translationY = placement.offset.y
-                        transformOrigin = TransformOrigin(0f, 0f)
-                        val clip = placement.clip
-                        if (clip != null) {
-                            // The clip in the layer's own (unscaled) pixels.
-                            val local = Rect(
-                                (clip.left - placement.offset.x) / placement.scale,
-                                (clip.top - placement.offset.y) / placement.scale,
-                                (clip.right - placement.offset.x) / placement.scale,
-                                (clip.bottom - placement.offset.y) / placement.scale,
-                            )
-                            shape = MediaClipShape(placement.corners.roundRect(local, placement.radius / placement.scale))
-                            this.clip = true
-                        } else {
-                            shape = RectangleShape
-                            this.clip = false
-                        }
-                    }
-                    .then(if (page) Modifier.background(MaterialTheme.colorScheme.background) else Modifier)
-                    .drawWithContent {
-                        drawContent()
-                        with(controller) { drawHomeBadges() }
-                    },
-            ) {
-                CompositionLocalProvider(LocalMediaViewer provides state) { content(state) }
+        // On < 33 the edge swipes drive the callbacks; the 33+ system back does too.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    controller.originInWindow = coordinates.positionInWindow()
+                    val size = coordinates.size
+                    val rect = Rect(Offset.Zero, Size(size.width.toFloat(), size.height.toFloat()))
+                    if (controller.bounds != rect) controller.bounds = rect
+                }
+                .graphicsLayer { alpha = controller.viewAlpha }
+                .semantics { paneTitle = screenName }
+                .pointerInput(controller) { trackPointer(controller) }
+                .pointerInput(controller) { dismissDrag(controller, slop, fromContent = false) }
+                .pointerInput(controller) { dismissDrag(controller, slop, fromContent = true) }
+                .nestedScroll(controller.documentDismissConnection),
+        ) {
+            if (!page) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = controller.backdropAlpha }
+                        .background(Color.Black),
+                )
             }
-        }
-        // The hand-off's copy flies under the content's chrome.
-        Canvas(Modifier.fillMaxSize()) { controller.flight?.let { drawFlight(it) } }
-        if (dark) {
-            val appearance = rememberAppAppearance()
-            OpenCodeTheme(theme = appearance.theme, appearance = AppearanceColorScheme.Dark, content = themed)
-        } else {
-            OpenCodeAppTheme(content = themed)
+            val themed: @Composable () -> Unit = {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val placement = controller.layerPlacement()
+                            alpha = placement.alpha
+                            scaleX = placement.scale
+                            scaleY = placement.scale
+                            translationX = placement.offset.x
+                            translationY = placement.offset.y
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            val clip = placement.clip
+                            if (clip != null) {
+                                // The clip in the layer's own (unscaled) pixels.
+                                val local = Rect(
+                                    (clip.left - placement.offset.x) / placement.scale,
+                                    (clip.top - placement.offset.y) / placement.scale,
+                                    (clip.right - placement.offset.x) / placement.scale,
+                                    (clip.bottom - placement.offset.y) / placement.scale,
+                                )
+                                shape = MediaClipShape(placement.corners.roundRect(local, placement.radius / placement.scale))
+                                this.clip = true
+                            } else {
+                                shape = RectangleShape
+                                this.clip = false
+                            }
+                        }
+                        .then(if (page) Modifier.background(MaterialTheme.colorScheme.background) else Modifier)
+                        .drawWithContent {
+                            drawContent()
+                            with(controller) { drawHomeBadges() }
+                        },
+                ) {
+                    CompositionLocalProvider(LocalMediaViewer provides state) { content(state) }
+                }
+            }
+            // The hand-off's copy flies under the content's chrome.
+            Canvas(Modifier.fillMaxSize()) { controller.flight?.let { drawFlight(it) } }
+            if (dark) {
+                val appearance = rememberAppAppearance()
+                OpenCodeTheme(theme = appearance.theme, appearance = AppearanceColorScheme.Dark, content = themed)
+            } else {
+                OpenCodeAppTheme(content = themed)
+            }
         }
     }
 }

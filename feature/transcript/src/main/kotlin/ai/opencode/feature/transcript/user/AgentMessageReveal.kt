@@ -20,14 +20,12 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import kotlin.math.max
@@ -213,7 +211,7 @@ internal class AgentRevealGlow {
 
     /** API < 33: the flat fill lift plus the border blurred inward, in the bubble's clip. Main thread only. */
     private class CanvasGlow : Renderer {
-        private var path: Path? = null
+        private val path = android.graphics.Path()
         private var pathSize: Size? = null
         private var pathCorners: UserSurfaceCorners? = null
         private var blur: BlurMaskFilter? = null
@@ -231,18 +229,19 @@ internal class AgentRevealGlow {
             val tight = UserMessageRun.tightRadius.toPx()
             val falloff = 7.dp.toPx()
             val frameBlur = blurFor(falloff)
-            val framePath = path?.takeIf { pathSize == size && pathCorners == corners } ?: Path().apply {
-                addRoundRect(
-                    RoundRect(
-                        0f, 0f, size.width, size.height,
-                        topLeft = CornerRadius(full),
-                        topRight = CornerRadius(if (corners.top) tight else full),
-                        bottomRight = CornerRadius(if (corners.bottom) tight else full),
-                        bottomLeft = CornerRadius(full),
+            if (pathSize != size || pathCorners != corners) {
+                // addRoundRect's radii are (topLeft, topRight, bottomRight, bottomLeft).
+                path.reset()
+                path.addRoundRect(
+                    android.graphics.RectF(0f, 0f, size.width, size.height),
+                    floatArrayOf(
+                        full,
+                        if (corners.top) tight else full,
+                        if (corners.bottom) tight else full,
+                        full,
                     ),
+                    android.graphics.Path.Direction.CW,
                 )
-            }.also {
-                path = it
                 pathSize = size
                 pathCorners = corners
             }
@@ -250,7 +249,7 @@ internal class AgentRevealGlow {
             paint.strokeWidth = falloff
             paint.maskFilter = frameBlur
             paint.color = glow.copy(alpha = glow.alpha * 0.76f * aGlow).toArgb()
-            drawIntoCanvas { it.nativeCanvas.drawPath(framePath, paint) }
+            drawIntoCanvas { it.nativeCanvas.drawPath(path, paint) }
         }
 
         /** Density can change (multi-window), so the blur rebuilds when the falloff does. */

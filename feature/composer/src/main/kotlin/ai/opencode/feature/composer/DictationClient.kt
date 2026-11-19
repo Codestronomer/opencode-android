@@ -452,13 +452,8 @@ private class SpeechSetup(private val context: Context) {
         val available = withContext(Dispatchers.Main) { SpeechRecognizer.isRecognitionAvailable(context) }
         if (!onDevice && !available) throw DictationError.LocaleUnsupported()
         val support = withTimeoutOrNull(INSTALL_WAIT) { support(onDevice) }
-        val supported = when {
-            support == null -> null
-            onDevice -> support.installedOnDeviceLanguages + support.pendingOnDeviceLanguages + support.supportedOnDeviceLanguages
-            else -> support.onlineLanguages + support.installedOnDeviceLanguages
-        }
-        val language = bestLocale(supported)
-        val needsInstall = onDevice && support != null && language !in support.installedOnDeviceLanguages
+        val language = bestLocale(support?.languages)
+        val needsInstall = onDevice && support != null && language !in support.installed
         // Warming up never downloads: `triggerModelDownload` shows a system
         // dialog, which belongs to the press that needs the language.
         if (needsInstall && !install) throw DictationModelNotInstalled()
@@ -472,12 +467,12 @@ private class SpeechSetup(private val context: Context) {
     }
 
     /** What the recognizer supports, or nil when it can't say (dictation then tries the current language). */
-    private suspend fun support(onDevice: Boolean): RecognitionSupport? = withContext(Dispatchers.Main) {
+    private suspend fun support(onDevice: Boolean): SpeechSupport? = withContext(Dispatchers.Main) {
         // Android 12 has no support check at all: nil says so, and dictation tries the recognizer.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@withContext null
         val recognizer = if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(context) else SpeechRecognizer.createSpeechRecognizer(context)
         try {
-            suspendCancellableCoroutine { continuation ->
+            val recognitionSupport = suspendCancellableCoroutine<RecognitionSupport?> { continuation ->
                 recognizer.checkRecognitionSupport(
                     Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH),
                     mainExecutor,
@@ -491,11 +486,26 @@ private class SpeechSetup(private val context: Context) {
                         }
                     },
                 )
-            }
+            } ?: return@withContext null
+            // Extracted here, inside the guard: RecognitionSupport's members are API 33.
+            SpeechSupport(
+                languages = if (onDevice) {
+                    recognitionSupport.installedOnDeviceLanguages +
+                        recognitionSupport.pendingOnDeviceLanguages +
+                        recognitionSupport.supportedOnDeviceLanguages
+                } else {
+                    recognitionSupport.onlineLanguages + recognitionSupport.installedOnDeviceLanguages
+                },
+                installed = recognitionSupport.installedOnDeviceLanguages,
+                pending = recognitionSupport.pendingOnDeviceLanguages,
+            )
         } finally {
             recognizer.destroy()
         }
     }
+
+    /** [RecognitionSupport]'s extraction: plain data, so its API-33 members stay inside [support]. */
+    private class SpeechSupport(val languages: List<String>, val installed: List<String>, val pending: List<String>)
 
     /** Downloads the on-device model for [language]: true installed, null scheduled, false when it won't be there. */
     private suspend fun install(language: String): Boolean? = withContext(Dispatchers.Main) {
@@ -529,11 +539,11 @@ private class SpeechSetup(private val context: Context) {
             val elapsed = (SystemClock.uptimeMillis() - started).milliseconds
             delay(INSTALL_POLL)
             val support = support(onDevice = true) ?: break
-            if (support.installedOnDeviceLanguages.any { it.equals(language, ignoreCase = true) }) {
+            if (support.installed.any { it.equals(language, ignoreCase = true) }) {
                 AppLog.voice.info("dictation_language_installed waited=${elapsed.inWholeMilliseconds}ms")
                 return true
             }
-            val pending = support.pendingOnDeviceLanguages.any { it.equals(language, ignoreCase = true) }
+            val pending = support.pending.any { it.equals(language, ignoreCase = true) }
             if (!pending && elapsed > INSTALL_GRACE) break
         }
         AppLog.voice.notice("dictation_language_not_installed")

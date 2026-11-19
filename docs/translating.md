@@ -88,8 +88,9 @@ couple of seconds.
 4. Add the code to `appLanguages` in `app/build.gradle.kts` (`"de"`, `"pt-rBR"`).
 5. Run `python3 scripts/translations.py <code>`. It lists strings that are missing, strings that
    no longer exist in English, and translations whose placeholders, plurals or escaping are wrong.
-6. Run `scripts/check.sh`, then try it: install the app and pick the language under the phone's
-   Settings › Apps › OpenCode › Language (Android 13 and up), or switch the phone's language.
+6. Run `scripts/check.sh`, then try it: install the app and pick the language in the app's
+   Settings › Language (works on Android 12 and up; on 13 and up it also shows under the phone's
+   Settings › Apps › OpenCode › Language), or switch the phone's language.
 
 At runtime a string with no translation shows in English, but CI requires every listed language
 to be complete (see CI above).

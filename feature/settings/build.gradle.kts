@@ -20,6 +20,8 @@ dependencies {
 dependencies {
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
+    // AppLanguageClient's Android 12 path goes through AppCompatDelegate/LocaleListCompat (docs/android-12-support.md §9.5).
+    implementation(libs.androidx.appcompat)
 }
 
 // Pairing scanner (servers/): CameraX frames decoded by ZXing; the camera permission launcher.

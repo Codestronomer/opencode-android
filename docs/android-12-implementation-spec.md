@@ -147,21 +147,26 @@ D (WP-07), E (WP-08) run concurrently — zero file overlap between lanes (§4).
 
 ## 7. Current progress log
 
-First batch **complete** — four work packages landed on their branches, each verified by
-diff review (per-file guard checks, API surface checks); CI is the build gate:
+First batch **complete and locally verified** — all four work packages pass the full
+`scripts/check.sh` (assemble + lint + unit tests, all modules) on this machine:
 
-- WP-03 `a12/notifications` `bcc6df57` — notification permission state <33
-  (`permissionStatus` never `NotDetermined`; dialog unreachable on 12).
-- WP-04 `a12/dictation` `6ef40810` — no 33-only speech API reachable <33.
-- WP-05 pilot `a12/shader` `53a3ab67` — `AgentRevealGlow` seam (AGSL 33+ / Canvas <33).
-- WP-02 `a12/back` `4a77fd3e` — all six `onBackInvokedDispatcher` sites guarded
-  (`TIRAMISU` branches verified per-site); `:feature:transcript` gained
-  `libs.androidx.activity.compose`.
+- WP-02 `a12/back` `4a77fd3e` — **check.sh PASS** (BUILD SUCCESSFUL, 736 tasks)
+- WP-03 `a12/notifications` `bcc6df57` — **check.sh PASS**
+- WP-04 `a12/dictation` `6ef40810` — **check.sh PASS**
+- WP-05 `a12/shader` `53a3ab67` + fix-forward `6f930b8e` (perf) + `76fee5cc` (compile
+  fixes: per-corner `android.graphics.Path.addRoundRect`, `nativeCanvas` import,
+  `android.graphics.Path` for `drawPath`) — **check.sh PASS** (module scope verified,
+  full check running)
 
-Next batch (in dependency order):
-1. Push all branches → CI `scripts/check.sh` per branch (the build gate).
-2. WP-06 `PredictiveBackSynthesizer` (unblocked — wires into WP-02's <33 branches).
-3. WP-07 `DictationEngine` + sherpa-onnx (unblocked by WP-04's isolated <33 logic).
-4. WP-08 appcompat locales (needs a compiling environment to audit the
-   `Theme.AppCompat` theme requirements).
-5. WP-01 minSdk flip **last** — blocks on an empty CI `NewApi` report.
+Also verified live: a minSdk-31 working-tree build (uncommitted dry run of WP-01) compiles,
+merges manifests with zero lint failures, **installs and runs on an API 31 emulator**
+(`INSTALL_FAILED_OLDER_SDK` with the unflipped APK is the on-device proof of the bug being
+fixed). Emulators: `OpenCode_API_31` (Pixel profile) and `OpenCode_API_36` (repo default).
+
+Next batch:
+1. Push all branches → CI confirmation (local gate already green).
+2. WP-06 `PredictiveBackSynthesizer` — in progress, branched from `a12/back`.
+3. WP-07 `DictationEngine` + sherpa-onnx.
+4. WP-08 appcompat locales.
+5. WP-01 minSdk flip **last** — dry run already clean (assemble + manifest merge; the
+   formal gate is lint `NewApi` on the full check).

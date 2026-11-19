@@ -4,6 +4,7 @@ import ai.opencode.core.dependencies.AppContext
 import ai.opencode.core.dependencies.dependency
 import ai.opencode.core.strings.localized
 import android.content.pm.PackageManager
+import android.os.Build
 
 /**
  * What's running, “Version 0.2.3 (226) · ec7d822”. Android reads the package's version name and
@@ -25,7 +26,13 @@ data class AppVersion(val version: String, val build: String, val commit: String
         private fun read(): AppVersion = runCatching {
             val context = dependency(AppContext)
             val pm = context.packageManager
-            val info = pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_META_DATA.toLong()))
+            // The PackageInfoFlags overload is API 33; the int overload is API 1, same flag.
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_META_DATA.toLong()))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(context.packageName, PackageManager.GET_META_DATA)
+            }
             val commit = info.applicationInfo?.metaData?.getString("opencode.commit")?.takeIf { it.isNotEmpty() }
             AppVersion(info.versionName ?: "?", info.longVersionCode.toString(), commit)
         }.getOrElse { AppVersion("?", "?", null) }

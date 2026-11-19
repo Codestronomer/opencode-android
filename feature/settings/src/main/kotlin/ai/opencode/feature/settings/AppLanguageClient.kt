@@ -32,10 +32,11 @@ class AppLanguageClient(
     companion object Key : DependencyKey<AppLanguageClient> {
         override val liveValue: AppLanguageClient by lazy {
             val context = dependency(AppContext)
-            val manager = context.getSystemService(LocaleManager::class.java)
             // LocaleManager and LocaleConfig are API 33; appcompat wraps both (and stores the
-            // choice through AppLocalesMetadataHolderService on 32 and below).
+            // choice through AppLocalesMetadataHolderService on 32 and below). The 33+ manager
+            // must resolve only inside the guarded branch: the class literal itself is NewApi.
             if (Build.VERSION.SDK_INT >= 33) {
+                val manager = context.getSystemService(LocaleManager::class.java)
                 AppLanguageClient(
                     supported = {
                         val locales = LocaleConfig(context).supportedLocales

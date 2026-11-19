@@ -171,7 +171,7 @@ internal class SignalFieldLayer {
     }
 
     /** The AGSL pass, API 33+, unchanged. */
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private class AgslField : Renderer {
         private val shader = RuntimeShader(SignalFieldShaderSource)
         private val brush = ShaderBrush(shader)
@@ -256,6 +256,7 @@ internal class SignalFieldRenderer {
     }
 
     /** Steps to [now] (seconds on the frame clock) and sets [shader]'s uniforms. False draws nothing. */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     fun draw(shader: RuntimeShader, scene: SignalFieldScene, now: Double, widthPx: Float, heightPx: Float, scale: Float): Boolean {
         val width = widthPx / scale
         val height = heightPx / scale
@@ -369,6 +370,7 @@ internal class SignalFieldRenderer {
         pendingEcho = null
     }
 
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun setUniforms(shader: RuntimeShader, scene: SignalFieldScene, w: Float, h: Float, scale: Float) {
         val ink = when {
             isDark && !highContrast -> floatArrayOf(0.886f, 0.906f, 0.945f)

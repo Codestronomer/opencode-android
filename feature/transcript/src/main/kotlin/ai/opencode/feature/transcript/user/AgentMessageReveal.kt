@@ -8,6 +8,7 @@ import android.graphics.BlurMaskFilter
 import android.graphics.Paint
 import android.graphics.RuntimeShader
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -189,6 +190,7 @@ internal class AgentRevealGlow {
     }
 
     /** The AGSL pass, API 33+, unchanged. */
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private class AgslGlow : Renderer {
         private val shader = RuntimeShader(AGENT_REVEAL_GLOW_AGSL)
         private val brush = ShaderBrush(shader)

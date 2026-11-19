@@ -7,6 +7,7 @@ import android.graphics.BitmapShader
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -226,6 +227,7 @@ internal class ConnectionScopeRenderer {
     }
 
     /** The AGSL pass, API 33+, unchanged: the field as a `BitmapShader` child. */
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private class AgslScope : Renderer {
         private val shader = RuntimeShader(ConnectionScopeShaders.CONNECTION_SCOPE_FRAGMENT)
         private val brush = ShaderBrush(shader)

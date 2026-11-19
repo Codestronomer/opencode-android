@@ -203,8 +203,14 @@ Remaining (outside this machine's reach):
   in-app picker lists all languages, picking Deutsch recreates the activity fully
   localized (Sprache / Vorgeschlagen / Alle Sprachen, check state persisted through
   appcompat's storage), System Default restores English. Zero crashes across the
-  round trip. The only QA surface left untested is the media-viewer edge-swipe back
-  preview (needs a session with media, manual).
+  round trip.
+- **WP-06 verified on the API 31 emulator with the finished build**: opening media,
+  a partial edge swipe previews and springs back on release, and a full edge swipe
+  commits — the media viewer dismisses exactly as the 33+ system gesture does. The QA
+  loop caught one real bug, fixed in the same session: the gesture's accumulator read
+  `positionChange()` (the consumed portion — the viewer's own hit-path filters consume
+  the moves, so it read zero and no swipe ever began); it now accumulates the raw
+  position delta. Media-viewer QA complete; all §7 surfaces verified.
 - APK size closed: `ndk.abiFilters = arm64-v8a` (249 → 137 MB) — also what unblocked the
   install on the storage-full device (`INSTALL_FAILED_INSUFFICIENT_STORAGE`); a Play
   release wanting other ABIs should move to splits / Play Asset Delivery.

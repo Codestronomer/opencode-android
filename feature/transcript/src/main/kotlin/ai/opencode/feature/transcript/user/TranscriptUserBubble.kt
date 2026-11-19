@@ -28,8 +28,11 @@ import ai.opencode.server.model.SessionLink
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.os.Build
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import androidx.activity.addCallback
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -574,12 +577,21 @@ private class UserBubbleSelectionToolbar(private val platform: TextToolbar, priv
 @Composable
 private fun SelectionBackHandler(onBack: () -> Unit) {
     val activity = LocalContext.current.findActivity() ?: return
+    val backOwner = LocalOnBackPressedDispatcherOwner.current
     val current by rememberUpdatedState(onBack)
     DisposableEffect(activity) {
-        val callback = OnBackInvokedCallback { current() }
-        // Above the app's own handlers (default priority), below a full-screen viewer (overlay).
-        activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT + 1, callback)
-        onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val callback = OnBackInvokedCallback { current() }
+            // Above the app's own handlers (default priority), below a full-screen viewer (overlay).
+            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT + 1, callback)
+            onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        } else {
+            // Android 12 sends no back-progress events, so back only ends the selection, as on 13.
+            val callback = backOwner?.onBackPressedDispatcher
+                ?.addCallback(backOwner, enabled = true) { current() }
+                ?: return@DisposableEffect onDispose { }
+            onDispose { callback.remove() }
+        }
     }
 }
 

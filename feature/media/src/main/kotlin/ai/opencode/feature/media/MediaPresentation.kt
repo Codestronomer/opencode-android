@@ -19,6 +19,8 @@ import android.window.BackEvent
 import android.window.OnBackAnimationCallback
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import androidx.activity.addCallback
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -1546,12 +1548,21 @@ private fun StatusBarEffect(controller: MediaViewerController) {
 @Composable
 internal fun MediaBackHandler(enabled: Boolean, onBack: () -> Unit) {
     val activity = LocalContext.current.findActivity() ?: return
+    val backOwner = LocalOnBackPressedDispatcherOwner.current
     val currentOnBack by rememberUpdatedState(onBack)
     DisposableEffect(activity, enabled) {
         if (!enabled) return@DisposableEffect onDispose { }
-        val callback = OnBackInvokedCallback { currentOnBack() }
-        activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
-        onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val callback = OnBackInvokedCallback { currentOnBack() }
+            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+            onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        } else {
+            // Android 12 sends no back-progress events, so back only dismisses, as on 13.
+            val callback = backOwner?.onBackPressedDispatcher
+                ?.addCallback(backOwner, enabled = true) { currentOnBack() }
+                ?: return@DisposableEffect onDispose { }
+            onDispose { callback.remove() }
+        }
     }
 }
 
@@ -1569,34 +1580,43 @@ internal fun MediaPredictiveBackHandler(
     onInvoked: () -> Unit,
 ) {
     val activity = LocalContext.current.findActivity() ?: return
+    val backOwner = LocalOnBackPressedDispatcherOwner.current
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentOnProgressed by rememberUpdatedState(onProgressed)
     val currentOnCancelled by rememberUpdatedState(onCancelled)
     val currentOnInvoked by rememberUpdatedState(onInvoked)
     DisposableEffect(activity, enabled) {
         if (!enabled) return@DisposableEffect onDispose { }
-        // Android 13 reports no gesture progress to apps, so back there only dismisses.
-        val callback = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            OnBackInvokedCallback { currentOnInvoked() }
-        } else object : OnBackAnimationCallback {
-            override fun onBackStarted(backEvent: BackEvent) {
-                currentOnStarted()
-            }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            // Android 12 sends no back-progress events, so back only dismisses, as on 13.
+            val callback = backOwner?.onBackPressedDispatcher
+                ?.addCallback(backOwner, enabled = true) { currentOnInvoked() }
+                ?: return@DisposableEffect onDispose { }
+            onDispose { callback.remove() }
+        } else {
+            // Android 13 reports no gesture progress to apps, so back there only dismisses.
+            val callback = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                OnBackInvokedCallback { currentOnInvoked() }
+            } else object : OnBackAnimationCallback {
+                override fun onBackStarted(backEvent: BackEvent) {
+                    currentOnStarted()
+                }
 
-            override fun onBackProgressed(backEvent: BackEvent) {
-                currentOnProgressed(backEvent.progress, backEvent.swipeEdge == BackEvent.EDGE_RIGHT)
-            }
+                override fun onBackProgressed(backEvent: BackEvent) {
+                    currentOnProgressed(backEvent.progress, backEvent.swipeEdge == BackEvent.EDGE_RIGHT)
+                }
 
-            override fun onBackCancelled() {
-                currentOnCancelled()
-            }
+                override fun onBackCancelled() {
+                    currentOnCancelled()
+                }
 
-            override fun onBackInvoked() {
-                currentOnInvoked()
+                override fun onBackInvoked() {
+                    currentOnInvoked()
+                }
             }
+            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+            onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
         }
-        activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
-        onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
     }
 }
 

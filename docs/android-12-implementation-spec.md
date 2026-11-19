@@ -204,13 +204,16 @@ Remaining (outside this machine's reach):
   localized (Sprache / Vorgeschlagen / Alle Sprachen, check state persisted through
   appcompat's storage), System Default restores English. Zero crashes across the
   round trip.
-- **WP-06 verified on the API 31 emulator with the finished build**: opening media,
-  a partial edge swipe previews and springs back on release, and a full edge swipe
-  commits — the media viewer dismisses exactly as the 33+ system gesture does. The QA
-  loop caught one real bug, fixed in the same session: the gesture's accumulator read
-  `positionChange()` (the consumed portion — the viewer's own hit-path filters consume
-  the moves, so it read zero and no swipe ever began); it now accumulates the raw
-  position delta. Media-viewer QA complete; all §7 surfaces verified.
+- **WP-06 verified on the API 31 emulator AND on the Galaxy S10+ with real gesture
+  navigation**: on the phone, opening media from the transcript and swiping inward
+  from the screen edge commits and dismisses the viewer — three triggers observed
+  (distance past ⅓, fling, and a slow short swipe — `MotionRelease`'s rule commits at
+  lower speed than assumed; the cancel path is verified on the emulator, and a gentle
+  partial swipe by hand shows the spring-back). The QA loop caught one real bug, fixed
+  in the same session: the gesture's accumulator read `positionChange()` (the consumed
+  portion — the viewer's own hit-path filters consume the moves, so it read zero and no
+  swipe ever began); it now accumulates the raw position delta. Media-viewer QA
+  complete on both devices; all §7 surfaces verified.
 - APK size closed: `ndk.abiFilters = arm64-v8a` (249 → 137 MB) — also what unblocked the
   install on the storage-full device (`INSTALL_FAILED_INSUFFICIENT_STORAGE`); a Play
   release wanting other ABIs should move to splits / Play Asset Delivery.

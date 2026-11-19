@@ -1,5 +1,6 @@
 package ai.opencode.feature.session.agentactivity
 
+import ai.opencode.core.ui.gl.GlPass
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
@@ -8,12 +9,15 @@ import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.RuntimeShader
 import android.graphics.Shader
+import android.opengl.GLES30
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
@@ -32,8 +36,10 @@ import kotlin.math.roundToInt
  * cells in the same order.
  *
  * `RuntimeShader` (API 33) doesn't exist below Android 13, so the draw goes through [orbRenderer],
- * a seam in the `AgentRevealGlow` shape: on 33+ the AGSL pass is unchanged, below 33 a Canvas
- * approximation draws the same packed field.
+ * a seam in the `AgentRevealGlow` shape: on 33+ the AGSL pass is unchanged, below 33 the pass
+ * ported to GLSL ES 3.0 ([ACTIVITY_ORB_FIELD_GLSL], docs/android-12-support.md §10.2) renders
+ * through the shared GLES context, and only when GLES is unusable a Canvas approximation draws
+ * the same packed field.
  *
  * Uniforms:
  * - `header0`: originX, originY, pitch, scale
@@ -142,13 +148,127 @@ half4 main(float2 position) {
 }
 """
 
+/**
+ * The pass above ported to GLSL ES 3.0 for Android 12 (docs/android-12-support.md §10.2,
+ * where it is validated under glslangValidator): identical maths after the mechanical type
+ * renames (`float2/3/4` → `vec2/3/4`, `half` → `float`), the entry point reads `gl_FragCoord`
+ * with the Y flipped to the AGSL's top-left origin, and the output stays premultiplied.
+ */
+private const val ACTIVITY_ORB_FIELD_GLSL = """
+#version 300 es
+precision highp float;
+
+uniform vec4 header0;   // originX, originY, pitch, scale
+uniform vec4 header1;   // glowAmount, glowPeak, dark, unlitAlpha
+uniform vec3 glowRGB;
+uniform vec3 neutral;
+uniform vec3 neutralCore;
+uniform vec3 accent;
+uniform vec3 accentCore;
+uniform vec4 cells[49];
+uniform vec2 uSize;     // render target size in px (for the y-flip)
+
+out vec4 fragColor;
+
+vec4 orbField(vec2 position) {
+  vec2 origin = header0.xy;
+  float pitch = header0.z;
+  float scale = max(1.0, header0.w);
+  float glowAmount = header1.x;
+  float glowPeak = header1.y;
+  float isDark = header1.z;
+  float a0 = header1.w;
+
+  float gridSide = 7.0 * pitch;
+  vec2 centre = origin + vec2(gridSide * 0.5);
+
+  vec3 premul = vec3(0.0);
+  float alphaAcc = 0.0;
+
+  if (glowAmount > 1e-3) {
+    float sigma = 2.2;
+    float reach = 3.6 * sigma;
+    float distCells = length(position - centre) / pitch;
+    if (distCells < reach) {
+      float g = min(1.0, glowAmount * exp(-distCells * distCells / (2.0 * sigma * sigma))) * glowPeak;
+      premul = glowRGB * g;
+      alphaAcc = g;
+    }
+  }
+
+  vec2 rel = (position - origin) / pitch;
+  if (rel.x < -0.6 || rel.y < -0.6 || rel.x > 7.6 || rel.y > 7.6) {
+    return vec4(premul, alphaAcc);
+  }
+  float halfPx = 0.5 / scale;
+  float top = isDark > 0.5 ? 0.96 : 1.0;
+
+  for (int i = 0; i < 49; i++) {
+    vec4 cell = cells[i];
+    float dotSize = cell.w;
+    if (dotSize <= 0.0) continue;
+    float r = floor(float(i) / 7.0);
+    float c = float(i) - r * 7.0;
+
+    vec2 dotCenter = origin + vec2((c + 0.5) * pitch, (r + 0.5) * pitch);
+    float dist = length(position - dotCenter);
+    if (dist > pitch + halfPx) continue;
+
+    float P = clamp(cell.x, 0.0, 1.0);
+    float haloPeak = 0.22 * P * P;
+    if (haloPeak <= 0.008 && dist > 0.48 * pitch + halfPx) continue;
+
+    float fresh = clamp(cell.y, 0.0, 1.0);
+    float dotAccent = clamp(cell.z, 0.0, 1.0);
+
+    float sstep = smoothstep(0.03, 0.2, P);
+    float shrink = 1.0 + ((0.82 + 0.18 * fresh) - 1.0) * sstep;
+    float radius = (0.25 + 0.17 * pow(max(P, 1e-5), 0.6)) * shrink * pitch * dotSize;
+    float outer = radius + 0.5 * pitch;
+    if (dist > (haloPeak > 0.008 ? outer : radius) + halfPx) continue;
+
+    float expPow = (isDark > 0.5 ? 0.9 : 0.75) * (1.4 + (1.0 - 1.4) * fresh);
+    float dotAlpha = a0 + (top - a0) * pow(max(P, 1e-5), expPow);
+    float core = clamp(P * P * 1.1, 0.0, 0.9) * (0.3 + 0.7 * fresh);
+    vec3 rgb = mix(mix(neutral, neutralCore, core), mix(accent, accentCore, core), dotAccent);
+
+    if (haloPeak > 0.008) {
+      float inner = max(0.0, radius - 0.01 * outer);
+      if (dist >= inner && dist <= outer + halfPx) {
+        float innerRamp = dist < radius ? clamp((dist - inner) / max(1e-4, radius - inner), 0.0, 1.0) : 1.0;
+        float d = max(0.0, dist - radius);
+        float outerCov = clamp((outer - dist) * scale + 0.5, 0.0, 1.0);
+        float hAlpha = haloPeak * exp(-d / (0.12 * pitch)) * innerRamp * outerCov;
+        premul = premul * (1.0 - hAlpha) + rgb * hAlpha;
+        alphaAcc = alphaAcc * (1.0 - hAlpha) + hAlpha;
+      }
+    }
+
+    if (dist <= radius + halfPx) {
+      float cov = clamp((radius - dist) * scale + 0.5, 0.0, 1.0);
+      float a = dotAlpha * cov;
+      premul = premul * (1.0 - a) + rgb * a;
+      alphaAcc = alphaAcc * (1.0 - a) + a;
+    }
+  }
+
+  return vec4(premul, alphaAcc);
+}
+
+void main() {
+  vec2 position = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y); // AGSL y-origin is top-left
+  fragColor = orbField(position);
+}
+"""
+
     /**
      * The one shared orb renderer. Main thread only: a glyph sets its uniforms and draws at once;
      * a recorded draw keeps the native shader it was recorded with, since every uniform change
-     * makes a new native instance.
+     * makes a new native instance. Below 33 [GlOrb] blocks the draw for its GL frame like the
+     * AGSL path does inside the draw.
      */
     internal val orbRenderer: OrbRenderer by lazy {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslOrb() else CanvasOrb()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslOrb() else GlOrb()
     }
 
     internal interface OrbRenderer {
@@ -176,7 +296,46 @@ half4 main(float2 position) {
     }
 
     /**
-     * API < 33: the same packed field as Canvas circles — the central Gaussian glow as a cached
+     * Below 33: the ported pass on GLES 3.0 (docs/android-12-support.md §10.2). The same packed
+     * field drives the uniforms — [AgentActivityOrb.Packed.cells] uploads as one
+     * `glUniform4fv(49)` array — and the rendered bitmap composites where the AGSL brush drew.
+     * Only if GLES is unusable there does the draw fall back to [CanvasOrb].
+     */
+    private class GlOrb : OrbRenderer {
+        private val pass = GlPass(ACTIVITY_ORB_FIELD_GLSL)
+        private val canvas by lazy { CanvasOrb() }
+
+        override fun DrawScope.draw(packed: AgentActivityOrb.Packed, side: Float) {
+            val size = ceil(side).toInt().coerceAtLeast(1)
+            val rendered = pass.render(size, size) { gl ->
+                GLES30.glUniform4f(
+                    gl.location("header0"),
+                    packed.header0[0], packed.header0[1], packed.header0[2], packed.header0[3],
+                )
+                GLES30.glUniform4f(
+                    gl.location("header1"),
+                    packed.header1[0], packed.header1[1], packed.header1[2], packed.header1[3],
+                )
+                GLES30.glUniform3f(gl.location("glowRGB"), packed.glowRGB[0], packed.glowRGB[1], packed.glowRGB[2])
+                GLES30.glUniform3f(gl.location("neutral"), packed.neutral[0], packed.neutral[1], packed.neutral[2])
+                GLES30.glUniform3f(gl.location("neutralCore"), packed.neutralCore[0], packed.neutralCore[1], packed.neutralCore[2])
+                GLES30.glUniform3f(gl.location("accent"), packed.accent[0], packed.accent[1], packed.accent[2])
+                GLES30.glUniform3f(gl.location("accentCore"), packed.accentCore[0], packed.accentCore[1], packed.accentCore[2])
+                GLES30.glUniform4fv(gl.location("cells"), 49, packed.cells, 0)
+                GLES30.glUniform2f(gl.location("uSize"), size.toFloat(), size.toFloat())
+            }
+            val bitmap = if (rendered) pass.bitmap(size, size) else null
+            if (bitmap == null) {
+                with(canvas) { draw(packed, side) }
+            } else {
+                drawImage(bitmap.asImageBitmap())
+            }
+        }
+    }
+
+    /**
+     * The GLES-unusable fallback: the same packed field as Canvas circles — the central Gaussian
+     * glow as a cached
      * per-pitch [RadialGradient] (a white Gaussian alpha profile, tinted per frame through a
      * colour filter and positioned with a reused matrix, since one renderer draws every glyph's
      * size) and each masked dot as an anti-aliased circle with the shader's radius, alpha and

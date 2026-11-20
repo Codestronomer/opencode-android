@@ -202,6 +202,32 @@ Remaining: port the other 8 effects (agent orb, catch-up drift, DotScope,
 WispOrb + child pass, ConnectionScope + child pass, SignalField, send-reset)
 following the proven pattern, verifying each in the Lab.
 
+**Progress update (the ports have landed):**
+- ConnectionScope + SignalField: `a12/gl-glsettings` `abd64de0` — merged. The
+  SignalField uniform plumbing was refactored so AGSL and GL receive identical
+  values (`SignalFieldUniforms.applyTo` overloads); ConnectionScope's field
+  child samples via `uploadTexture` (no extra flip for grid-sized CPU bitmaps
+  — a subtle correctness catch the agent reasoned through).
+- Agent orb + catch-up drift: `a12/gl-glsession` `f24c0a54` — merged. The orb's
+  `cells[49]` uploads via `glUniform4fv` from the existing `pack` output.
+- DotScope + WispOrb: `a12/gl-glvoice` `e1639497` — merged. The child
+  field/cells upload as **RGBA_F16 textures read with `texelFetch`** — byte-exact
+  against what AGSL's half-float reads see — plus a replace-in-place upload so
+  per-frame uploads don't leak textures.
+- **The orientation chain was caught and fixed before it shipped**: the shader
+  flip + `glReadPixels`' bottom-up rows double-flip every GL bitmap (the pilot's
+  round symmetric glow couldn't expose it; the orb's accents and the drift noise
+  would have). The fix reverses the rows in `GlPass.bitmap` — one pipeline fix
+  covering all ports.
+- A branch/working-tree drift was reconciled (the WP-01 flip, ABI filter,
+  URLEncoder fix and row flip were uncommitted local state in `wt-build-floor`
+  while every verified build ran from that tree).
+
+Remaining: the Lab's golden diffs for the newly ported effects (the Lab grows
+a cell per effect; the voice effects render from live call/dictation state, so
+those verify on-device), the send-reset effect (it reuses the orb pass — now
+covered), and the final full-matrix pass.
+
 ## 8. Device QA record (Galaxy S10+, Android 12 / API 31)
 
 - **Crashes: zero** across the whole session (`logcat -b crash` empty from the fresh

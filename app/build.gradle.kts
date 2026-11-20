@@ -14,6 +14,10 @@ android {
     namespace = "ai.opencode.app"
     defaultConfig {
         applicationId = "ai.opencode.mobilecode"
+        // arm64 only: the dictation engine's four ABI sets cost ~69 MB of APK, and every
+        // device this fork targets (Android 12 phones, Apple-silicon emulators) is arm64.
+        // A Play release wanting other ABIs should move to splits or Play Asset Delivery.
+        ndk.abiFilters += listOf("arm64-v8a")
         // CI stamps builds so testers can tell them apart: the version code (each build installs
         // over the last), the release's version (OC_VERSION_NAME) for releases, else the short
         // commit SHA in the name.

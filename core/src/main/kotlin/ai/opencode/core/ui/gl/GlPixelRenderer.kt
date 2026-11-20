@@ -115,6 +115,7 @@ class GlPass(private val fragmentSource: String) {
     private var targetHeight = 0
     private val locations = mutableMapOf<String, Int>()
     private var pixels: ByteBuffer? = null
+    private var flipBuffer: ByteBuffer? = null
     private var quad = 0
 
     /** The FBO texture (valid on the shared GL context), for parent passes sampling children. */
@@ -209,12 +210,32 @@ class GlPass(private val fragmentSource: String) {
         } ?: false
     }
 
-    /** The frame's pixels, as the bitmap the caller composites. UI thread only. */
+    /** The frame's pixels, as the bitmap the caller composites. UI thread only.
+     *
+     * Row order: GL writes bottom-up; the ported shaders flip Y to the AGSL top-left
+     * origin, so the FBO's bottom row is the AGSL's top. `glReadPixels` returns the FBO's
+     * bottom row first, and a Bitmap's first row is its top — the rows reverse here, or
+     * every GL render would be vertically flipped (the lab's round symmetric glow hid it;
+     * the orb's accents and the drift noise expose it).
+     */
     fun bitmap(width: Int, height: Int): Bitmap? {
         val buffer = pixels ?: return null
         buffer.rewind()
+        val rowBytes = width * 4
+        val flipped = flipBuffer?.takeIf { it.capacity() == rowBytes * height }
+            ?: ByteBuffer.allocateDirect(rowBytes * height).order(ByteOrder.nativeOrder())
+                .also { flipBuffer = it }
+        for (row in 0 until height) {
+            flipped.position(row * rowBytes)
+            val src = (height - 1 - row) * rowBytes
+            val dup = buffer.duplicate()
+            dup.position(src)
+            dup.limit(src + rowBytes)
+            flipped.put(dup)
+        }
+        flipped.position(0)
         val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        out.copyPixelsFromBuffer(buffer)
+        out.copyPixelsFromBuffer(flipped)
         return out
     }
 

@@ -39,31 +39,31 @@ private fun ShaderLab() {
     Column(Modifier.fillMaxSize().background(Color(0xFF101418)).padding(16.dp)) {
         Text("Shader Lab", color = Color.White)
         if (android.os.Build.VERSION.SDK_INT >= 33) {
-            RevealRow("reveal glow: AGSL (left) vs GL (right)", AgentRevealGlow.Mode.Agsl, dark)
+            RevealRow("reveal glow: AGSL (left) vs GL (right)", AgentRevealGlow.Mode.Agsl, dark, UserSurfaceCorners(top = true))
         }
-        RevealRow("reveal glow: GL (left) vs GL (right, repeat)", AgentRevealGlow.Mode.Gl, dark)
-        RevealRow("reveal glow: AGSL vs GL", null, dark)
+        RevealRow("reveal glow: GL (left) vs GL (right, repeat)", AgentRevealGlow.Mode.Gl, dark, UserSurfaceCorners(top = true))
+        RevealRow("reveal glow: AGSL vs GL (top-tight corner = orientation probe)", null, dark, UserSurfaceCorners(top = true))
     }
 }
 
 @Composable
-private fun RevealRow(label: String, mode: AgentRevealGlow.Mode?, dark: Boolean) {
+private fun RevealRow(label: String, mode: AgentRevealGlow.Mode?, dark: Boolean, corners: UserSurfaceCorners = UserSurfaceCorners.round) {
     val left = AgentRevealGlow(mode ?: AgentRevealGlow.Mode.Agsl.takeIf { android.os.Build.VERSION.SDK_INT >= 33 } ?: AgentRevealGlow.Mode.Gl)
     val right = AgentRevealGlow(AgentRevealGlow.Mode.Gl)
     Text(label, color = Color(0xFF9AA4B0))
     Row {
-        LabCell(left, dark, Modifier.padding(end = 12.dp))
-        LabCell(right, dark)
+        LabCell(left, dark, corners, Modifier.padding(end = 12.dp))
+        LabCell(right, dark, corners)
     }
 }
 
 @Composable
-private fun LabCell(glow: AgentRevealGlow, dark: Boolean, modifier: Modifier = Modifier) {
+private fun LabCell(glow: AgentRevealGlow, dark: Boolean, corners: UserSurfaceCorners, modifier: Modifier = Modifier) {
     Canvas(
         modifier
             .size(150.dp, 70.dp)
             .background(Color(0xFF1B2129)),
     ) {
-        with(glow) { draw(1.0, UserSurfaceCorners.round, dark) }
+        with(glow) { draw(1.0, corners, dark) }
     }
 }

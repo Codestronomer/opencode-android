@@ -36,7 +36,6 @@ class GlSurfacePass(private val fragmentSource: String) {
     private var height = 0
     private val locations = mutableMapOf<String, Int>()
     private var latest: ImageBitmap? = null
-    private var heldImage: android.media.Image? = null
 
     fun location(name: String): Int = locations.getOrPut(name) {
         GLES30.glGetUniformLocation(program, name)
@@ -60,13 +59,11 @@ class GlSurfacePass(private val fragmentSource: String) {
                 }
             }
             if (reader == null || width != this@GlSurfacePass.width || height != this@GlSurfacePass.height) {
-                heldImage?.close()
-                heldImage = null
                 latest = null
                 surface?.let { GlPixel.destroySurface(it) }
                 reader?.close()
                 val newReader = ImageReader.newInstance(
-                    width, height, android.graphics.PixelFormat.RGBA_8888, 3,
+                    width, height, android.graphics.PixelFormat.RGBA_8888, 4,
                     HardwareBuffer.USAGE_GPU_COLOR_OUTPUT or HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE,
                 )
                 val newSurface = GlPixel.windowSurface(newReader.surface)
@@ -98,15 +95,28 @@ class GlSurfacePass(private val fragmentSource: String) {
             GlPixel.swap(surface)
         } ?: return null
         if (!ok) return null
-        val image = reader?.acquireLatestImage() ?: return latest
-        heldImage?.close()
-        heldImage = image
-        val hardware = image.hardwareBuffer ?: return latest
+        // acquireNextImage never auto-closes older images: the wrapped hardware bitmap
+        // holds a reference on the buffer, so closing the image here is safe, and a
+        // slow UI thread can never deadlock the GL thread's swap the way
+        // acquireLatestImage's auto-close + an explicit close could double-free a
+        // buffer still referenced by a display list.
+        val image = try {
+            reader?.acquireNextImage()
+        } catch (e: IllegalStateException) {
+            null
+        } ?: return latest
+        val hardware = image.hardwareBuffer ?: run {
+            image.close()
+            return latest
+        }
         val bitmap = Bitmap.wrapHardwareBuffer(hardware, ColorSpace.get(ColorSpace.Named.SRGB))
-            ?: return latest
-        latest = bitmap.asImageBitmap()
-        return latest
+        image.close()
+        val out = bitmap?.asImageBitmap()
+        if (out != null) latest = out
+        return out ?: latest
     }
+
+
     private fun compile(): Int {
         val vertex = shader(GLES30.GL_VERTEX_SHADER, VERTEX) ?: return 0
         val fragment = shader(GLES30.GL_FRAGMENT_SHADER, fragmentSource) ?: return 0
@@ -408,6 +418,69 @@ class GlPass(private val fragmentSource: String) {
         out.copyPixelsFromBuffer(flipped)
         return out
     }
+    /**
+     * The readback variant of [render] with persistent triple-buffered slots: no per-frame
+     * allocation, no row-flip copy. The returned bitmap's rows run BOTTOM-UP (glReadPixels
+     * order); the caller draws it flipped about its vertical center (a free transform).
+     * Triple-buffering keeps the slot two frames away from the last display list that
+     * sampled it — the standard back-buffer contract. The rows run bottom-up because the
+     * ported shaders flip Y to the AGSL origin and `glReadPixels` returns the FBO's bottom
+     * row first: with the row order preserved, the flipped draw lands the image upright.
+     */
+    fun renderPersisted(width: Int, height: Int, setUniforms: (GlPass) -> Unit): Bitmap? {
+        val ok = GlPixel.run {
+            if (failed || width <= 0 || height <= 0) return@run false
+            if (program == 0) {
+                program = compile()
+                if (program == 0) {
+                    AppLog.app.error("gl_shader_compile_failed")
+                    failed = true
+                    return@run false
+                }
+            }
+            if (width != targetWidth || height != targetHeight) resize(width, height)
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
+            GLES30.glViewport(0, 0, width, height)
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            GLES30.glUseProgram(program)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quad)
+            val aPos = GLES30.glGetAttribLocation(program, "aPos")
+            GLES30.glEnableVertexAttribArray(aPos)
+            GLES30.glVertexAttribPointer(aPos, 2, GLES30.GL_FLOAT, false, 0, 0)
+            setUniforms(this)
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
+            GLES30.glDisableVertexAttribArray(aPos)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+            val slot = ensureSlots(width, height)[slotIndex]
+            val buffer = slot.first
+            buffer.rewind()
+            GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
+            slotIndex = (slotIndex + 1) % slots.size
+            true
+        } ?: return null
+        if (!ok) return null
+        val (buffer, bitmap) = slots[slotIndex - 1].let { it }
+        buffer.rewind()
+        bitmap.copyPixelsFromBuffer(buffer)
+        return bitmap
+    }
+
+    private var slots: List<Pair<ByteBuffer, Bitmap>> = emptyList()
+    private var slotIndex = 0
+    private var slotSize: Pair<Int, Int>? = null
+
+    private fun ensureSlots(width: Int, height: Int): List<Pair<ByteBuffer, Bitmap>> {
+        if (slotSize?.first == width && slotSize?.second == height) return slots
+        slots = (0 until 3).map {
+            ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder()) to
+                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        }
+        slotSize = width to height
+        slotIndex = 0
+        return slots
+    }
+
 
     private fun compile(): Int {
         val vertex = shader(GLES30.GL_VERTEX_SHADER, VERTEX) ?: return 0

@@ -223,6 +223,19 @@ following the proven pattern, verifying each in the Lab.
   URLEncoder fix and row flip were uncommitted local state in `wt-build-floor`
   while every verified build ran from that tree).
 
+**Performance round, status (measured where possible):** the GPU-resident
+ImageReader path **froze on the device** (ANR on opening Catch Up — the
+acquireNextImage/acquireLatestImage buffer lifecycle raced the display list;
+the GL thread's swap blocked the UI thread through the render latch). The
+drift went back to the readback path with two strict improvements over the
+41.7% baseline: persistent triple-buffered slots (no per-frame 17.5 MB
+allocation) and the row-flip as a free `scale(1, -1)` draw transform (no
+17.5 MB copy). The ImageReader path remains in core behind `GlSurfacePass`
+for a future iteration with a GL-thread consumer; the drift doesn't use it.
+The measured post-optimization benchmark on the Catch Up view is pending the
+device re-pairing (the storage cleanup that unblocked the install also wiped
+the pairing data; the dictation model re-downloads on demand).
+
 **Performance round (performance QA, measured):** the catch-up card animation
 lagged; `dumpsys gfxinfo` on the Catch Up view measured **41.7% janky frames**
 (50th percentile 21–27 ms against the 16.7 ms budget) with the GPU at 6 ms —

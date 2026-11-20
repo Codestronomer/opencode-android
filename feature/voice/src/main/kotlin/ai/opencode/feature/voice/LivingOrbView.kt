@@ -2,6 +2,7 @@ package ai.opencode.feature.voice
 
 import ai.opencode.core.motion.rememberReduceMotion
 import ai.opencode.core.tuning.AnimationTimeScale
+import ai.opencode.core.ui.gl.GlPass
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
@@ -11,6 +12,7 @@ import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.RuntimeShader
 import android.graphics.Shader
+import android.opengl.GLES30
 import android.os.Build
 import androidx.annotation.RequiresApi
 import android.util.Half
@@ -32,6 +34,7 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -47,6 +50,7 @@ import androidx.lifecycle.compose.currentStateAsState
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -109,8 +113,9 @@ data class LivingOrbBloom(
 /**
  * The call's voice orb: Wisp's glass lens and phosphor dots ([WispOrbSim], [WispOrbShaders]).
  *
- * Android: an AGSL [RuntimeShader] drawn by a Compose [Canvas] (a Canvas approximation on Android
- * 12, [WispOrbRaster]); a `withFrameNanos` loop steps the
+ * Android: an AGSL [RuntimeShader] drawn by a Compose [Canvas] (on Android 12 the same maths
+ * ported to GLSL ES 3.0, rendered off-screen — [WispOrbRaster]'s Gl renderer — with the Canvas
+ * approximation only if GLES is unusable); a `withFrameNanos` loop steps the
  * plain-object [WispOrbRenderer] only while it shows. Under Reduce Motion it draws once whenever
  * its inputs change. Wisp's glass looks the same in light and dark.
  *
@@ -292,15 +297,14 @@ class WispOrbRenderer private constructor() {
 }
 
 /**
- * The orb's raster, one per API level. `RuntimeShader` (API 33) doesn't exist on Android 12, so
- * there the lens approximates the AGSL pass on Canvas: the dark glass plate as a filled disc, the
- * lens's inner glow as one gradient, and the CPU kernel's lit LEDs as plain circles (their halos,
- * the mute ring, the feather into the glass and the fade above its foot) — no shadow, no rim
- * light, no dither.
+ * The orb's raster, one per API level: the AGSL pass on 33+, on Android 12 the same maths ported
+ * to GLSL ES 3.0 and rendered off-screen by the shared GLES context ([Gl]) — the CPU kernel's
+ * cells upload as a texture the ported pass samples at the two texels per LED — and the Canvas
+ * approximation ([CanvasLens]) only if GLES is unusable.
  */
 private class WispOrbRaster {
     private val renderer: Renderer =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Agsl() else CanvasLens()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Agsl() else Gl()
 
     val prepared: Boolean get() = renderer.prepared
 
@@ -377,6 +381,91 @@ private class WispOrbRaster {
         override fun DrawScope.draw() {
             val brush = brush ?: return
             drawRect(brush)
+        }
+    }
+
+    /**
+     * Android 12: the AGSL pass above ported to GLSL ES 3.0 (docs/android-12-support.md §10.2),
+     * rendered off-screen by the shared GLES context and composited as a bitmap. The CPU
+     * kernel's cells upload as a texture the ported pass samples at the two texels per LED
+     * (`texelFetch`, the same texels `cells.eval(2i + 0.5)` and `2i + 1.5` read). The uniform
+     * names and values keep [WispOrbShaders.rasterSlots].
+     */
+    private class Gl : Renderer {
+        private val pass = GlPass(WispOrbShaders.wispOrbFragmentGlsl)
+        // Warmed with every upload/publish, so if the GL pass fails the Canvas approximation
+        // takes over on the same frame's state, with no blank frames.
+        private val canvas = CanvasLens()
+        private var bitmap: Bitmap? = null
+        private var pixels: ByteBuffer? = null
+        private var columns = 0
+        private var texture = 0
+        private var data = FloatArray(0)
+
+        override val prepared: Boolean get() = bitmap != null
+
+        override fun prepare(next: Int) {
+            bitmap = createBitmap(max(1, 2 * next), max(1, next), Bitmap.Config.RGBA_F16, hasAlpha = true, colorSpace = ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB))
+            pixels = ByteBuffer.allocateDirect(max(1, 2 * next) * max(1, next) * 8).order(ByteOrder.nativeOrder())
+            columns = next
+            canvas.prepare(next)
+        }
+
+        // The texture holds raw half-float bits (`Half.toHalf` → `putShort`), read by the shader as data:
+        // pixel 2i is (dot radius, dot alpha, halo alpha, 1), pixel 2i + 1 the colour.
+        @SuppressLint("HalfFloat")
+        override fun upload(cells: FloatArray) {
+            canvas.upload(cells)
+            val buffer = pixels ?: return
+            val textureBitmap = bitmap ?: return
+            buffer.clear()
+            val one = Half.toHalf(1f)
+            for (n in 0 until columns * columns) {
+                val c = n * WispOrbCells.floatsPerCell
+                buffer.putShort(Half.toHalf(cells[c]))
+                buffer.putShort(Half.toHalf(cells[c + 2]))
+                buffer.putShort(Half.toHalf(cells[c + 3]))
+                buffer.putShort(one)
+                buffer.putShort(Half.toHalf(cells[c + 4]))
+                buffer.putShort(Half.toHalf(cells[c + 5]))
+                buffer.putShort(Half.toHalf(cells[c + 6]))
+                buffer.putShort(one)
+            }
+            buffer.rewind()
+            textureBitmap.copyPixelsFromBuffer(buffer)
+        }
+
+        override fun publish(uniforms: WispOrbUniforms) {
+            canvas.publish(uniforms)
+            val textureBitmap = bitmap ?: return
+            texture = pass.uploadTexture(textureBitmap, texture)
+            data = uniforms.data.copyOf()
+        }
+
+        override fun DrawScope.draw() {
+            if (texture == 0 || data.isEmpty()) {
+                with(canvas) { draw() }
+                return
+            }
+            val width = ceil(size.width).toInt()
+            val height = ceil(size.height).toInt()
+            val d = data
+            val rendered = pass.render(width, height) { gl ->
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
+                GLES30.glUniform1i(gl.location("cells"), 0)
+                for ((name, slot) in WispOrbShaders.rasterSlots) {
+                    val o = slot * 4
+                    GLES30.glUniform4f(gl.location(name), d[o], d[o + 1], d[o + 2], d[o + 3])
+                }
+                GLES30.glUniform2f(gl.location("uSize"), width.toFloat(), height.toFloat())
+            }
+            val frame = if (rendered) pass.bitmap(width, height) else null
+            if (frame == null) {
+                with(canvas) { draw() }
+            } else {
+                drawImage(frame.asImageBitmap())
+            }
         }
     }
 

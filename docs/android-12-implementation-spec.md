@@ -223,6 +223,16 @@ following the proven pattern, verifying each in the Lab.
   URLEncoder fix and row flip were uncommitted local state in `wt-build-floor`
   while every verified build ran from that tree).
 
+**Performance round, final (measured over wifi debugging):** the
+half-applied merge was repaired (readSlot's scope), the GLES JNI's Buffer
+position advance was fixed at the source (rewind before every
+glReadPixels), and the fixed build went to the device over **wireless
+debugging** (paired via the Wireless debugging flow — the phone is
+untethered). Catch Up on the device: **zero crashes, zero ANRs, 284
+frames, janky 10.2%, median 12 ms** vs the 41.7% / 21–27 ms baseline.
+The catch-up card animation is smooth; the remaining 99th-percentile
+outlier (150 ms) is the view-entry frame (first GL compile + upload).
+
 **Performance round, status (measured where possible):** the GPU-resident
 ImageReader path **froze on the device** (ANR on opening Catch Up — the
 acquireNextImage/acquireLatestImage buffer lifecycle raced the display list;

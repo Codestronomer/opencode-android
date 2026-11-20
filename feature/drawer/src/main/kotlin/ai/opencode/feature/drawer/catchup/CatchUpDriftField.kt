@@ -2,7 +2,7 @@ package ai.opencode.feature.drawer.catchup
 
 import ai.opencode.core.motion.rememberReduceMotion
 import ai.opencode.core.ui.OpenCodeTheme
-import ai.opencode.core.ui.gl.GlPass
+import ai.opencode.core.ui.gl.GlSurfacePass
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -275,13 +275,13 @@ internal class CatchUpDriftRenderer {
     private class GlField : FieldRenderer {
         override val isStill = false
 
-        private val pass = GlPass(SHADER_GLSL)
+        private val pass = GlSurfacePass(SHADER_GLSL)
         private val still by lazy { StillField() }
 
         override fun DrawScope.draw(frame: Frame) {
             val width = ceil(frame.widthPx).toInt().coerceAtLeast(1)
             val height = ceil(frame.heightPx).toInt().coerceAtLeast(1)
-            val rendered = pass.render(width, height) { gl ->
+            val image = pass.render(width, height) { gl ->
                 GLES30.glUniform4f(gl.location("grid"), frame.pitchPx, frame.cols, frame.rows, frame.scale)
                 GLES30.glUniform4f(gl.location("origin"), frame.originXPx, frame.originYPx, frame.heightPx, if (frame.dark) 1f else 0f)
                 GLES30.glUniform4f(gl.location("look"), frame.time, frame.level, frame.swell, frame.finishTime)
@@ -292,11 +292,10 @@ internal class CatchUpDriftRenderer {
                 GLES30.glUniform4f(gl.location("agentCore"), frame.palette[9], frame.palette[10], frame.palette[11], 1f)
                 GLES30.glUniform2f(gl.location("uSize"), width.toFloat(), height.toFloat())
             }
-            val bitmap = if (rendered) pass.bitmap(width, height) else null
-            if (bitmap == null) {
+            if (image == null) {
                 with(still) { draw(frame) }
             } else {
-                drawImage(bitmap.asImageBitmap())
+                drawImage(image)
             }
         }
     }

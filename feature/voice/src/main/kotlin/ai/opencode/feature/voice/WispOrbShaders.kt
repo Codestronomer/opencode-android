@@ -211,4 +211,211 @@ half4 main(float2 position) {
   return half4(float4(rgb, alpha));
 }
 """
+
+/**
+ * The pass above ported to GLSL ES 3.0 for Android 12 (docs/android-12-support.md §10.2):
+ * identical maths and constants, renamed types, and the entry point reads `gl_FragCoord`
+ * with the Y flipped to the AGSL's top-left origin. The output stays premultiplied.
+ *
+ * The `cells` child (a `2·columns × columns` RGBA_F16 bitmap of raw half-float values, two
+ * texels per LED) uploads as a GL_RGBA16F texture and reads with `texelFetch` — the same
+ * texels the AGSL samples at `2i + 0.5` / `2i + 1.5`, `j + 0.5`: the bitmap's rows upload in
+ * the order the AGSL coordinates walk them, so the child's and the pass's Y flips cancel.
+ */
+const val wispOrbFragmentGlsl: String = """
+#version 300 es
+precision highp float;
+
+uniform sampler2D cells;
+uniform vec4 grid;
+uniform vec4 mixB;
+uniform vec4 tintBase;
+uniform vec4 tintCore;
+uniform vec4 rim;
+uniform vec4 view;
+uniform vec4 glow;
+uniform vec4 clipRect;
+uniform vec4 clipShape;
+uniform vec2 uSize;    // render target size (px), for the Y flip
+
+out vec4 fragColor;
+
+const float WISP_BLEED = 10.0;
+const vec3 USER_BASE = vec3(0.60, 0.90, 0.98);
+const vec3 AGENT_BASE = vec3(0.44, 0.91, 0.68);
+const vec3 MUTED_PLATE = vec3(26.0 / 255.0, 14.0 / 255.0, 16.0 / 255.0);
+const vec3 MUTED_RIM = vec3(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0);
+
+float ws(float e0, float e1, float x) {
+  float t = clamp((x - e0) / (e1 - e0), 0.0, 1.0);
+  return t * t * (3.0 - 2.0 * t);
+}
+
+vec3 mix3(vec3 a, vec3 b, float t) { return a + (b - a) * t; }
+
+vec4 composite(vec4 dst, vec3 rgb, float alpha) {
+  float a = clamp(alpha, 0.0, 1.0);
+  return vec4(dst.rgb * (1.0 - a) + rgb * a, dst.a * (1.0 - a) + a);
+}
+
+float coverage(float d, float aa) { return clamp(0.5 - d / max(aa, 1e-4), 0.0, 1.0); }
+
+float fastTanh(float x) {
+  float c = clamp(x, -3.0, 3.0);
+  float c2 = c * c;
+  return c * (27.0 + c2) / (27.0 + 9.0 * c2);
+}
+
+float wispBox(vec2 p, vec4 box, float corner) {
+  vec2 hs = 0.5 * (box.zw - box.xy);
+  float r = min(corner, min(hs.x, hs.y));
+  vec2 q = abs(p - 0.5 * (box.xy + box.zw)) - hs + r;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+
+// (dot radius, dot alpha, halo alpha, 1)
+vec4 cellGeo(float i, float j) { return texelFetch(cells, ivec2(int(2.0 * i + 0.5), int(j + 0.5)), 0); }
+vec3 cellColour(float i, float j) { return texelFetch(cells, ivec2(int(2.0 * i + 1.5), int(j + 0.5)), 0).rgb; }
+
+// `RimLight::shade`: the Fresnel band inside the limb and the specular hairline.
+vec4 rimShade(vec4 res, vec2 pt, float rPt, float dist, float aa) {
+  float live = 1.0 - mixB.y;
+  if (live <= 1e-3 || dist < -2.6 - aa || dist > 0.45 + aa) return res;
+  float radius = grid.z;
+  float pitch = grid.y;
+  float cols = grid.x;
+  float off = (cols - 1.0) * 0.5;
+  vec2 un = pt / max(rPt, 1e-3);
+  vec3 left = mix3(tintBase.rgb, USER_BASE, 0.75 * clamp(rim.x, 0.0, 1.0));
+  vec3 right = mix3(tintBase.rgb, AGENT_BASE, 0.75 * clamp(rim.y, 0.0, 1.0));
+  vec3 side = mix3(left, right, ws(-0.55, 0.55, un.x));
+  float probe = max(radius - 3.2, 0.0);
+  float col = clamp(floor(un.x * probe / pitch + off + 0.5), 0.0, cols - 1.0);
+  float row = clamp(floor(un.y * probe / pitch + off + 0.5), 0.0, cols - 1.0);
+  float power = clamp(cellGeo(col, row).y / 0.96, 0.0, 1.0);
+  vec3 wave = mix3(side, cellColour(col, row), 0.30 + 0.45 * power);
+
+  float along = -(0.55 * un.x + 0.83 * un.y);
+  float key = ws(-0.2, 1.0, along);
+  key *= key;
+  float bounce = 0.38 * ws(0.35, 1.0, -along);
+  float inside = coverage(dist, aa);
+  if (inside > 0.0) {
+    float depth = clamp(-dist / 2.6, 0.0, 1.0);
+    float fres = (1.0 - depth) * (1.0 - depth);
+    float a = fres * (0.06 + 0.26 * power + 0.10 * key + 0.08 * bounce);
+    res = composite(res, mix3(wave, vec3(1.0), 0.16 + 0.22 * key), min(a, 0.92) * inside * live);
+  }
+  float hair = coverage(abs(dist) - 0.45, aa);
+  if (hair > 0.0) {
+    float a = 0.08 + 0.42 * key + 0.20 * bounce + 0.10 * power;
+    res = composite(res, mix3(wave, vec3(1.0), 0.25 + 0.60 * key), a * hair * live);
+  }
+  return res;
+}
+
+vec4 wispOrb(vec2 position) {
+  float ppp = view.z;
+  float aa = view.w;
+  vec2 pt = (position - view.xy) / ppp;
+  float radius = grid.z;
+  float pitch = grid.y;
+  float cols = grid.x;
+  float off = (cols - 1.0) * 0.5;
+
+  float orbOuter = radius + WISP_BLEED;
+  float shadowOuter = radius + WISP_BLEED - 0.2;
+  float shadowInner = max(radius - 14.4, 0.0);
+  float r2 = dot(pt, pt);
+  float shDy = pt.y - glow.w;
+  float shR2 = pt.x * pt.x + shDy * shDy;
+  if (r2 > orbOuter * orbOuter && shR2 > shadowOuter * shadowOuter) return vec4(0.0);
+
+  float lensInner = max(radius - 2.6 - aa, 0.0);
+  bool deepInside = r2 <= lensInner * lensInner;
+  vec4 res = vec4(0.0);
+  if (shR2 < shadowInner * shadowInner) {
+    res.a = 0.42;
+  } else if (shR2 < shadowOuter * shadowOuter) {
+    float shadowD = sqrt(shR2) - radius;
+    float edgeFade = ws(WISP_BLEED - 0.2, WISP_BLEED - 4.2, shadowD);
+    res.a = 0.42 * (0.5 - 0.5 * fastTanh(shadowD / 4.8)) * edgeFade;
+  }
+  float rPt = sqrt(r2);
+  float dist = deepInside ? -3.0 : rPt - radius;
+  float shape = deepInside ? 1.0 : coverage(dist, aa);
+  vec3 plate = mix3(mix3(vec3(15.0, 16.0, 20.0) / 255.0, vec3(44.0, 16.0, 18.0) / 255.0, mixB.x * 0.65), MUTED_PLATE, mixB.y);
+  if (shape > 0.0) res = composite(res, plate, 0.94 * shape);
+
+  if (shape > 0.0) {
+    float glowStrength = glow.x;
+    float glowReach = glow.y;
+    if (glowStrength > 0.004 && r2 < glowReach * glowReach) {
+      float gt = min(rPt / glowReach, 1.0);
+      vec3 glowMid = mix3(tintBase.rgb, tintCore.rgb, 0.5);
+      res = composite(res, mix3(glowMid, tintBase.rgb, gt), glowStrength * (1.0 - gt) * (1.0 - gt) * shape);
+    }
+    float reach = glow.z;
+    vec2 f = pt / pitch + off;
+    float iLo = max(ceil(f.x - reach), 0.0);
+    float iHi = min(floor(f.x + reach), cols - 1.0);
+    float jLo = max(ceil(f.y - reach), 0.0);
+    float jHi = min(floor(f.y + reach), cols - 1.0);
+    for (int dj = 0; dj < 7; dj++) {
+      float j = jLo + float(dj);
+      if (j > jHi) break;
+      float dy = pt.y - (j - off) * pitch;
+      for (int di = 0; di < 7; di++) {
+        float i = iLo + float(di);
+        if (i > iHi) break;
+        vec4 geo = cellGeo(i, j);
+        float dotR = geo.x;
+        float dotA = geo.y;
+        float haloA = geo.z;
+        if (dotA <= 0.0) continue;
+        float haloR = haloA > 0.0 ? 2.0 * dotR : dotR;
+        float dx = pt.x - (i - off) * pitch;
+        float maxR = haloR + aa;
+        float d2 = dx * dx + dy * dy;
+        if (d2 >= maxR * maxR) continue;
+        vec3 colour = cellColour(i, j);
+        float fromCenter = sqrt(d2);
+        if (haloA > 0.0) {
+          float hc = coverage(fromCenter - haloR, aa);
+          if (hc > 0.0) res = composite(res, colour, haloA * shape * hc);
+        }
+        float dc = coverage(fromCenter - dotR, aa);
+        if (dc > 0.0) res = composite(res, colour, dotA * shape * dc);
+      }
+    }
+  }
+
+  if (!deepInside && dist <= 0.45 + aa) res = rimShade(res, pt, rPt, dist, aa);
+  if (!deepInside && mixB.y > 1e-3) {
+    float muteCov = coverage(abs(dist) - 0.75, aa);
+    if (muteCov > 0.0) res = composite(res, MUTED_RIM, 0.55 * mixB.y * muteCov);
+  }
+
+  // A grown orb feathers into the glass around it and fades above its bottom.
+  if (clipShape.x >= 0.0) {
+    float inside = -wispBox(position, clipRect, clipShape.x);
+    res *= ws(0.0, max(clipShape.y, 1e-3), inside);
+  }
+  res *= clamp((clipShape.z - position.y) / max(clipShape.w, 1e-3), 0.0, 1.0);
+
+  float alpha = clamp(res.a, 0.0, 1.0);
+  if (alpha <= 1e-4) return vec4(0.0);
+  // `ign_dither`, in premultiplied space.
+  vec2 px = floor(position);
+  float n1 = fract(52.982918 * fract(px.x * 0.06711056 + px.y * 0.00583715));
+  float n2 = fract(52.982918 * fract((px.x + 17.0) * 0.06711056 + (px.y + 31.0) * 0.00583715));
+  vec3 rgb = clamp(res.rgb + (n1 - n2) / 255.0 * alpha, 0.0, alpha);
+  return vec4(rgb, alpha);
+}
+
+void main() {
+  vec2 position = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y); // AGSL y-origin is top-left
+  fragColor = wispOrb(position);
+}
+"""
 }

@@ -115,6 +115,7 @@ class GlPass(private val fragmentSource: String) {
     private var targetHeight = 0
     private val locations = mutableMapOf<String, Int>()
     private var pixels: ByteBuffer? = null
+    private var flipBuffer: ByteBuffer? = null
     private var quad = 0
 
     /** The FBO texture (valid on the shared GL context), for parent passes sampling children. */
@@ -128,11 +129,13 @@ class GlPass(private val fragmentSource: String) {
     /**
      * Uploads [bitmap] as a linear-filtered RGBA texture on the shared context (GL thread);
      * the caller samples it (`AGSL uniform shader` ports) and releases nothing — the texture
-     * lives until the pass's context dies with the process.
+     * lives until the pass's context dies with the process. Pass a texture from a previous
+     * call as [replace] to update it in place instead of generating a new object per frame
+     * (the CPU bitmaps behind these children change every frame). Returns 0 when GL is
+     * unusable.
      */
-    fun uploadTexture(bitmap: Bitmap): Int = GlPixel.run {
-        val name = IntArray(1)
-        GLES30.glGenTextures(1, name, 0)
+    fun uploadTexture(bitmap: Bitmap, replace: Int = 0): Int = GlPixel.run {
+        val name = if (replace != 0) intArrayOf(replace) else IntArray(1).also { GLES30.glGenTextures(1, it, 0) }
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, name[0])
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
@@ -141,11 +144,21 @@ class GlPass(private val fragmentSource: String) {
         val buffer = ByteBuffer.allocateDirect(bitmap.byteCount).order(ByteOrder.nativeOrder())
         bitmap.copyPixelsToBuffer(buffer)
         buffer.rewind()
-        GLES30.glTexImage2D(
-            GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA,
-            bitmap.width, bitmap.height, 0,
-            GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer,
-        )
+        if (bitmap.config == Bitmap.Config.RGBA_F16) {
+            // Raw data, as the AGSL setInputBuffer children are: the half-float bits the
+            // shader reads as values, not colour — GL_RGBA16F keeps them byte-exact.
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA16F,
+                bitmap.width, bitmap.height, 0,
+                GLES30.GL_RGBA, GLES30.GL_HALF_FLOAT, buffer,
+            )
+        } else {
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA,
+                bitmap.width, bitmap.height, 0,
+                GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer,
+            )
+        }
         name[0]
     } ?: 0
 
@@ -197,12 +210,32 @@ class GlPass(private val fragmentSource: String) {
         } ?: false
     }
 
-    /** The frame's pixels, as the bitmap the caller composites. UI thread only. */
+    /** The frame's pixels, as the bitmap the caller composites. UI thread only.
+     *
+     * Row order: GL writes bottom-up; the ported shaders flip Y to the AGSL top-left
+     * origin, so the FBO's bottom row is the AGSL's top. `glReadPixels` returns the FBO's
+     * bottom row first, and a Bitmap's first row is its top — the rows reverse here, or
+     * every GL render would be vertically flipped (the lab's round symmetric glow hid it;
+     * the orb's accents and the drift noise expose it).
+     */
     fun bitmap(width: Int, height: Int): Bitmap? {
         val buffer = pixels ?: return null
         buffer.rewind()
+        val rowBytes = width * 4
+        val flipped = flipBuffer?.takeIf { it.capacity() == rowBytes * height }
+            ?: ByteBuffer.allocateDirect(rowBytes * height).order(ByteOrder.nativeOrder())
+                .also { flipBuffer = it }
+        for (row in 0 until height) {
+            flipped.position(row * rowBytes)
+            val src = (height - 1 - row) * rowBytes
+            val dup = buffer.duplicate()
+            dup.position(src)
+            dup.limit(src + rowBytes)
+            flipped.put(dup)
+        }
+        flipped.position(0)
         val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        out.copyPixelsFromBuffer(buffer)
+        out.copyPixelsFromBuffer(flipped)
         return out
     }
 

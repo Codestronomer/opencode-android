@@ -2,6 +2,7 @@ package ai.opencode.feature.voice
 
 import ai.opencode.core.log.AppLog
 import ai.opencode.core.diagnostics.PerfTrace
+import ai.opencode.core.ui.gl.GlPass
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import ai.opencode.core.motion.rememberReduceMotion
@@ -15,6 +16,7 @@ import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.RuntimeShader
 import android.graphics.Shader
+import android.opengl.GLES30
 import android.os.Build
 import androidx.annotation.RequiresApi
 import android.util.Half
@@ -34,6 +36,7 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -52,6 +55,7 @@ import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -87,8 +91,9 @@ sealed interface DotScopeMode {
  * follow the dictation level. Under Reduce Motion it is the quiet state, still; in the
  * background it stops drawing.
  *
- * Android: an AGSL [RuntimeShader] ([DotScopeShaders]) drawn by a Compose [Canvas] (a Canvas
- * approximation on Android 12, [DotScopeRaster]); a
+ * Android: an AGSL [RuntimeShader] ([DotScopeShaders]) drawn by a Compose [Canvas] (on
+ * Android 12 the same maths ported to GLSL ES 3.0, rendered off-screen — [DotScopeRaster]'s
+ * Gl renderer — with the Canvas approximation only if GLES is unusable); a
  * `withFrameNanos` loop advances the plain-object [DotScopeRenderer] (never reducer actions) only
  * while the scope is visible: not [LocalDotScopeCovered], and the lifecycle resumed. A paused scope
  * keeps its last frame and resumes with a reset clock, so it never fast-forwards. Under Reduce
@@ -365,14 +370,14 @@ private data class FrameState(
 )
 
 /**
- * The scope's raster, one per API level. `RuntimeShader` (API 33) doesn't exist on Android 12, so
- * there the lit grid approximates the AGSL pass on Canvas: the CPU-lit field drawn as plain
- * circles (no LED bloom, no dither) over soft glow ellipses behind the buttons, in the window
- * between them.
+ * The scope's raster, one per API level: the AGSL pass on 33+, on Android 12 the same maths
+ * ported to GLSL ES 3.0 and rendered off-screen by the shared GLES context ([Gl]) — the CPU-lit
+ * field uploads as a texture the ported pass samples at the cell centres — and the Canvas
+ * approximation ([CanvasDots]) only if GLES is unusable.
  */
 private class DotScopeRaster {
     private val renderer: Renderer =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Agsl() else CanvasDots()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Agsl() else Gl()
 
     fun prepare(grid: DotScopeGrid) = renderer.prepare(grid)
 
@@ -469,6 +474,122 @@ private class DotScopeRaster {
         override fun DrawScope.draw() {
             val brush = brush ?: return
             drawRect(brush)
+        }
+    }
+
+    /**
+     * Android 12: the AGSL pass above ported to GLSL ES 3.0 (docs/android-12-support.md §10.2),
+     * rendered off-screen by the shared GLES context and composited as a bitmap. The CPU-lit
+     * field uploads as a texture the ported pass samples at the cell centres (`texelFetch`,
+     * the same texel `field.eval(cell + 0.5)` reads). The uniforms keep the AGSL pass's names.
+     */
+    private class Gl : Renderer {
+        private val pass = GlPass(DotScopeShaders.dotScopeFragmentGlsl)
+        // Warmed with every publish, so if the GL pass fails the Canvas approximation takes
+        // over on the same frame's state, with no blank frames.
+        private val canvas = CanvasDots()
+        private var fieldBitmap: Bitmap? = null
+        private var fieldPixels: ByteBuffer? = null
+        private var fieldTexture = 0
+        private var published: DotScopeGrid? = null
+
+        // The frame's uniform values, computed at publish (main thread) and wired at draw.
+        private val grid4 = FloatArray(4)
+        private val origin4 = FloatArray(4)
+        private val state4 = FloatArray(4)
+        private val window4 = FloatArray(4)
+        private val glow4 = FloatArray(4)
+        private val you4 = FloatArray(4)
+        private val youCore4 = FloatArray(4)
+        private val agent4 = FloatArray(4)
+        private val agentCore4 = FloatArray(4)
+        private val bar4 = FloatArray(4)
+        private val shape4 = FloatArray(4)
+
+        override fun prepare(grid: DotScopeGrid) {
+            fieldBitmap = createBitmap(grid.columns, grid.rows, Bitmap.Config.RGBA_F16, hasAlpha = true, colorSpace = ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB))
+            fieldPixels = ByteBuffer.allocateDirect(grid.columns * grid.rows * 8).order(ByteOrder.nativeOrder())
+            canvas.prepare(grid)
+        }
+
+        // The texture holds raw half-float bits (`Half.toHalf` → `putShort`), read by the shader as data.
+        @SuppressLint("HalfFloat")
+        override fun pack(grid: DotScopeGrid, field: FloatArray) {
+            val buffer = fieldPixels ?: return
+            buffer.clear()
+            val one = Half.toHalf(1f)
+            for (n in 0 until grid.count) {
+                val i = n * 4
+                buffer.putShort(Half.toHalf(field[i]))
+                buffer.putShort(Half.toHalf(field[i + 1]))
+                buffer.putShort(Half.toHalf(field[i + 2]))
+                buffer.putShort(one)
+            }
+            buffer.rewind()
+        }
+
+        override fun publish(grid: DotScopeGrid, mode: DotScopeMode, isDark: Boolean, state: FrameState, field: FloatArray) {
+            canvas.publish(grid, mode, isDark, state, field)
+            val bitmap = fieldBitmap ?: return
+            fieldPixels?.let { bitmap.copyPixelsFromBuffer(it) }
+            fieldTexture = pass.uploadTexture(bitmap, fieldTexture)
+            published = grid
+            grid4[0] = grid.pitch; grid4[1] = grid.columns.toFloat(); grid4[2] = grid.rows.toFloat(); grid4[3] = grid.scale
+            origin4[0] = grid.originX; origin4[1] = grid.originY; origin4[2] = grid.width; origin4[3] = grid.height
+            state4[0] = state.live; state4[1] = if (isDark) 1f else 0f; state4[2] = 1f; state4[3] = 1f
+            when (mode) {
+                is DotScopeMode.Preview -> {
+                    window4[0] = DotScopeSimulation.windowInset
+                    window4[1] = DotScopeSimulation.windowFade
+                    window4[2] = 0f
+                    window4[3] = 0f
+                }
+                is DotScopeMode.Dictation -> {
+                    val eased = state.insets ?: ScopeVector2(mode.leadingInset, mode.trailingInset)
+                    window4[0] = eased.x; window4[1] = 24f; window4[2] = eased.y; window4[3] = 0f
+                }
+            }
+            glow4[0] = state.glow.x; glow4[1] = state.glow.y; glow4[2] = state.breath; glow4[3] = state.live
+            val palette = DotScopePalette.pearlPalette(isDark)
+            val isDictation = mode is DotScopeMode.Dictation
+            palette.you.copyInto(you4)
+            palette.youCore.copyInto(youCore4)
+            (if (isDictation) palette.you else palette.agent).copyInto(agent4)
+            (if (isDictation) palette.youCore else palette.agentCore).copyInto(agentCore4)
+            bar4[0] = 0f; bar4[1] = grid.width; bar4[2] = 0f; bar4[3] = 0f
+            shape4[0] = grid.height / 2; shape4[1] = 0f; shape4[2] = 0f; shape4[3] = 0f
+        }
+
+        override fun DrawScope.draw() {
+            if (published == null || fieldTexture == 0) {
+                with(canvas) { draw() }
+                return
+            }
+            val width = ceil(size.width).toInt()
+            val height = ceil(size.height).toInt()
+            val rendered = pass.render(width, height) { gl ->
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, fieldTexture)
+                GLES30.glUniform1i(gl.location("field"), 0)
+                GLES30.glUniform4f(gl.location("grid"), grid4[0], grid4[1], grid4[2], grid4[3])
+                GLES30.glUniform4f(gl.location("origin"), origin4[0], origin4[1], origin4[2], origin4[3])
+                GLES30.glUniform4f(gl.location("state"), state4[0], state4[1], state4[2], state4[3])
+                GLES30.glUniform4f(gl.location("window"), window4[0], window4[1], window4[2], window4[3])
+                GLES30.glUniform4f(gl.location("glow"), glow4[0], glow4[1], glow4[2], glow4[3])
+                GLES30.glUniform4f(gl.location("you"), you4[0], you4[1], you4[2], you4[3])
+                GLES30.glUniform4f(gl.location("youCore"), youCore4[0], youCore4[1], youCore4[2], youCore4[3])
+                GLES30.glUniform4f(gl.location("agent"), agent4[0], agent4[1], agent4[2], agent4[3])
+                GLES30.glUniform4f(gl.location("agentCore"), agentCore4[0], agentCore4[1], agentCore4[2], agentCore4[3])
+                GLES30.glUniform4f(gl.location("bar"), bar4[0], bar4[1], bar4[2], bar4[3])
+                GLES30.glUniform4f(gl.location("shape"), shape4[0], shape4[1], shape4[2], shape4[3])
+                GLES30.glUniform2f(gl.location("uSize"), width.toFloat(), height.toFloat())
+            }
+            val frame = if (rendered) pass.bitmap(width, height) else null
+            if (frame == null) {
+                with(canvas) { draw() }
+            } else {
+                drawImage(frame.asImageBitmap())
+            }
         }
     }
 

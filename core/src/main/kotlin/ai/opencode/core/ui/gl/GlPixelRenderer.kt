@@ -452,15 +452,16 @@ class GlPass(private val fragmentSource: String) {
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
             GLES30.glDisableVertexAttribArray(aPos)
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
-            val slot = ensureSlots(width, height)[slotIndex]
+            val readSlot = slotIndex
+            val slot = ensureSlots(width, height)[readSlot]
             val buffer = slot.first
             buffer.rewind()
             GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
-            slotIndex = (slotIndex + 1) % slots.size
+            slotIndex = (readSlot + 1) % slots.size
             true
         } ?: return null
         if (!ok) return null
-        val (buffer, bitmap) = slots[slotIndex - 1].let { it }
+        val (buffer, bitmap) = slots[readSlot]
         buffer.rewind()
         bitmap.copyPixelsFromBuffer(buffer)
         return bitmap

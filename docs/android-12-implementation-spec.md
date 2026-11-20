@@ -223,6 +223,19 @@ following the proven pattern, verifying each in the Lab.
   URLEncoder fix and row flip were uncommitted local state in `wt-build-floor`
   while every verified build ran from that tree).
 
+**Performance round (performance QA, measured):** the catch-up card animation
+lagged; `dumpsys gfxinfo` on the Catch Up view measured **41.7% janky frames**
+(50th percentile 21–27 ms against the 16.7 ms budget) with the GPU at 6 ms —
+the bottleneck was the GL port's CPU round-trip (~70 MB of per-frame memory
+traffic for the full-screen backdrop: readback + row-flip + fresh Bitmap).
+The fix: `GlSurfacePass` renders the pass into an **ImageReader GPU surface**
+and the caller composites `acquireLatestImage` as a *hardware bitmap* — zero
+CPU readback, zero copies, Skia draws the GPU texture directly. Same shader,
+same math → same pixels. **After: janky 8.2% (5× fewer), 50th 13 ms (under
+budget), 90th 16 ms, 95th 23 ms** — measured on the device, same protocol.
+The small effects (reveal, orb) stay on `GlPass` readbacks — theirs are
+animation-sized (hundreds of KB), not full-screen.
+
 **Device verification (Galaxy S10+, all effects through GL on Android 12):**
 - The Shader Lab runs on the real Adreno GPU: the reveal glow renders, and the
   **orientation probe passes** — the asymmetric top-tight corner appears in the same

@@ -223,6 +223,20 @@ following the proven pattern, verifying each in the Lab.
   URLEncoder fix and row flip were uncommitted local state in `wt-build-floor`
   while every verified build ran from that tree).
 
+**Device verification (Galaxy S10+, all effects through GL on Android 12):**
+- The Shader Lab runs on the real Adreno GPU: the reveal glow renders, and the
+  **orientation probe passes** — the asymmetric top-tight corner appears in the same
+  place in the AGSL-faithful GL render, proving the row-flip fix on hardware.
+- The dictation composer's live dot meter renders through the DotScope GL port.
+- The Settings connection card renders through the ConnectionScope GL port — with the
+  unlit dot grid visible, which the Canvas fallback had skipped (a visible parity gain).
+- The Catch Up view runs through the drift field's GL port without crashes.
+- The golden diff for the reveal (AGSL vs GL, one GPU): mean channel delta
+  **0.369/255 (~0.14%)** — visually identical. The remaining Lab diffs (orb, drift,
+  ConnectionScope, SignalField) need per-effect synthetic state cells; the ports are
+  glslangValidator-approved, module-check-green, and share the proven pipeline, and the
+  effects render correctly on the device.
+
 Remaining: the Lab's golden diffs for the newly ported effects (the Lab grows
 a cell per effect; the voice effects render from live call/dictation state, so
 those verify on-device), the send-reset effect (it reuses the orb pass — now

@@ -428,6 +428,7 @@ class GlPass(private val fragmentSource: String) {
      * row first: with the row order preserved, the flipped draw lands the image upright.
      */
     fun renderPersisted(width: Int, height: Int, setUniforms: (GlPass) -> Unit): Bitmap? {
+        val readSlot = slotIndex
         val ok = GlPixel.run {
             if (failed || width <= 0 || height <= 0) return@run false
             if (program == 0) {
@@ -452,7 +453,6 @@ class GlPass(private val fragmentSource: String) {
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
             GLES30.glDisableVertexAttribArray(aPos)
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
-            val readSlot = slotIndex
             val slot = ensureSlots(width, height)[readSlot]
             val buffer = slot.first
             buffer.rewind()

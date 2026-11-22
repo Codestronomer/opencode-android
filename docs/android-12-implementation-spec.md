@@ -360,5 +360,19 @@ AGENTS.md requires the coordinator's approval for new test files).
   (no per-frame bitmap, no row flip); the per-row reveal reuses its bitmap.
 - **A4/A6** — stale/past-bug comments removed in the touched files; the dead `Mode`
   parameter is gone from `ConnectionScopeRenderer`/`SignalFieldLayer`.
+- **A8** — the three ONNX downloads are checked against the pinned Hugging Face
+  revision's published LFS SHA-256 before the `.part` is renamed into place (tokens.txt
+  has no LFS digest and stays size-checked; the risk there is a failed engine load, not
+  silent garbage). Verification is at install time, so a bad download is retried
+  instead of poisoning `isPresent()`.
+- **A11** — the language-install poll backs off from 1 s to 8 s, so a five-minute
+  install no longer creates/destroys ~300 recognizers.
+- **A5** — SignalField's GLES-unusable path draws a soft aperture glow from the frame's
+  `ink`/`aperture` uniforms instead of leaving the onboarding backdrop blank; it is a
+  deliberate degenerate, not a third full port (which is what A2 warns against).
+- **A2** — not changed: the specific drift claim (the reveal's GLSL missing Y-flip) is
+  false (`AgentMessageReveal.kt` flips `gl_FragCoord.y`), and collapsing the seven
+  AGSL/GLSL pairs needs a single-source dialect design validated by golden diffs,
+  which is a refactor of its own rather than a review fix.
 - Verification: `scripts/check.sh` (assemble + lint + unit tests) green at minSdk 31;
   device QA re-run on the Galaxy S10+ for the language, dictation and back paths.

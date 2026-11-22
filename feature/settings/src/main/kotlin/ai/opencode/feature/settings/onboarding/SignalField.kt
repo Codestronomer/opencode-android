@@ -25,6 +25,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Offset
@@ -213,6 +215,20 @@ internal class SignalFieldLayer {
             if (output != null) {
                 // The readback's rows run bottom-up; the transform lands them upright.
                 scale(1f, -1f, pivot = Offset(width / 2f, height / 2f)) { drawImage(output.asImageBitmap()) }
+            } else {
+                // GLES unusable: a soft aperture glow instead of a blank onboarding backdrop.
+                val ink = uniforms.colorOf("ink") ?: return
+                val aperture = uniforms.valuesOf("aperture") ?: return
+                val centre = Offset(aperture[0] * density, aperture[1] * density)
+                val radius = max(size.width, size.height) * 0.7f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(ink.copy(alpha = 0.10f), Color.Transparent),
+                        center = centre,
+                        radius = radius,
+                    ),
+                    radius = radius,
+                )
             }
         }
 
@@ -232,6 +248,10 @@ internal class SignalFieldUniforms {
     fun record(name: String, x: Float, y: Float, z: Float, w: Float) {
         values[name] = floatArrayOf(x, y, z, w)
     }
+
+    fun valuesOf(name: String): FloatArray? = values[name]
+
+    fun colorOf(name: String): Color? = values[name]?.let { Color(it[0], it[1], it[2]) }
 
     /** Onto the AGSL pass, API 33+. */
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)

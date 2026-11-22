@@ -240,8 +240,9 @@ the GL thread's swap blocked the UI thread through the render latch). The
 drift went back to the readback path with two strict improvements over the
 41.7% baseline: persistent triple-buffered slots (no per-frame 17.5 MB
 allocation) and the row-flip as a free `scale(1, -1)` draw transform (no
-17.5 MB copy). The ImageReader path remains in core behind `GlSurfacePass`
-for a future iteration with a GL-thread consumer; the drift doesn't use it.
+17.5 MB copy). The ImageReader path lived in core behind `GlSurfacePass`; the PR #1 review
+found it dead and trap-prone and removed it (§9), so a future GPU-resident
+attempt starts from a clean design.
 The measured post-optimization benchmark on the Catch Up view is pending the
 device re-pairing (the storage cleanup that unblocked the install also wiped
 the pairing data; the dictation model re-downloads on demand).
@@ -317,3 +318,47 @@ covered), and the final full-matrix pass.
 - APK size closed: `ndk.abiFilters = arm64-v8a` (249 → 137 MB) — also what unblocked the
   install on the storage-full device (`INSTALL_FAILED_INSUFFICIENT_STORAGE`); a Play
   release wanting other ABIs should move to splits / Play Asset Delivery.
+
+## 9. PR #1 review fixes (2026-11-22)
+
+The `android-12 → dev` review blocked on two Criticals and thirteen Important findings;
+all Criticals and Importants are fixed in this revision (I13, test coverage, stays open:
+AGENTS.md requires the coordinator's approval for new test files).
+
+- **C1** — `AppLanguageClient.current` below 33 read `getApplicationLocales().get(0)`;
+  with nothing stored (every fresh install) appcompat returns an empty list and the
+  picker crashed during composition. It now returns null when empty. `systemLocales`
+  below 33 reads `Resources.getSystem().configuration.locales` so the app's own choice
+  cannot masquerade as the phone's (I10), and the asset-qualifier fallback converts
+  `zh-rCN`-style qualifiers to BCP 47 instead of feeding them to `forLanguageTag`
+  (I11). The key's inert `testValue` is back (A13).
+- **C2** — `SystemSearchIndex` referenced `android.app.appsearch` unconditionally after
+  the minSdk flip; on 31/32 class resolution throws `NoClassDefFoundError` on the
+  publish path (bare `SupervisorJob`, no handler → process death). Both effects are now
+  gated on `SDK_INT >= TIRAMISU` at the call site (and inside the object), with
+  `@RequiresApi(33)` so lint keeps the guard honest.
+- **I1/I9/I12** — dictation: a failed model download clears the cached job so the next
+  press retries; `.part` checkpoints survive the stale-file sweep; the native stream
+  release runs under `NonCancellable` so a press cancelled while the recognizer mutex is
+  contended cannot leak decoder state.
+- **I2/A14** — the bundled Zipformer is English-only, so non-English locales now fall
+  back to the platform recognizer as the KDoc promised; below 33 the platform fallback
+  no longer sends the 33-only audio-pipe extras (it uses the microphone, and the app's
+  capture stays unconnected instead of blocking on an unread pipe).
+- **I3/I4/A10** — the synthesized back gesture feeds `MotionRelease` dp/s (density
+  division, as the sibling call sites do), maps progress to the same half-width commit
+  point, always settles with `onCancelled` when the pointer stream ends abnormally, and
+  consumes the edge gesture once it claims it.
+- **I5/I6/I8/A1/A3/A15** — GL engine: a throwing GL call or a 5 s stall marks GL failed
+  instead of killing the shared thread and hanging the draw thread; `GlPass.close()`
+  frees program/FBO/texture/buffer (called from every renderer's `DisposableEffect`,
+  including per-message reveal and ScreenField's layer, which previously leaked a pass
+  per `drawWithCache`); ConnectionScope updates its field texture in place instead of a
+  generate/upload/delete round trip per frame; the unused `GlSurfacePass` and its EGL
+  window helpers are gone; `render`/`renderPersisted` share one `drawFrame`.
+- **I7** — full-screen passes use `renderPersisted`'s triple slots with a flipped draw
+  (no per-frame bitmap, no row flip); the per-row reveal reuses its bitmap.
+- **A4/A6** — stale/past-bug comments removed in the touched files; the dead `Mode`
+  parameter is gone from `ConnectionScopeRenderer`/`SignalFieldLayer`.
+- Verification: `scripts/check.sh` (assemble + lint + unit tests) green at minSdk 31;
+  device QA re-run on the Galaxy S10+ for the language, dictation and back paths.

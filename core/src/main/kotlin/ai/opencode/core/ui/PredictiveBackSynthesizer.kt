@@ -26,9 +26,9 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
  * in the surface's dismiss-only back handler, so behaviour degrades to Android 13's
  * there. On 33+ this only hosts [content]; the system produces the events.
  *
- * The commit distance is a third of the screen's width, an approximation of the system's
- * threshold: a swipe commits past it or on a fling ([BackSwipeRules.goesBack]); otherwise
- * it cancels.
+ * The commit distance is the release rule's half of the screen's width, an approximation of
+ * the system's threshold: a swipe commits past it or on a fling ([BackSwipeRules.goesBack]);
+ * otherwise it cancels.
  */
 @Composable
 fun PredictiveBackSynthesizer(
@@ -92,43 +92,50 @@ private fun EdgeSwipes(
                     // The score is always rightward-inward: mirror the right edge.
                     val inwardSign = if (fromRightEdge) -1f else 1f
                     var started = false
+                    var settled = false
                     val tracker = VelocityTracker()
                     var offset = Offset.Zero
                     tracker.addPosition(down.uptimeMillis, down.position)
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        // Raw delta: other hit-path filters may consume the moves; a
-                        // non-consuming observer still needs the real travel.
-                        offset += change.position - change.previousPosition
-                        if (change.lifted()) {
-                            if (started) {
-                                val velocity = tracker.calculateVelocity().x * inwardSign
-                                if (BackSwipeRules.goesBack(offset.x * inwardSign, width, velocity)) onInvoked()
-                                else onCancelled()
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (started) change.consume()
+                            // Raw delta: other hit-path filters may consume the moves; a
+                            // non-consuming observer still needs the real travel.
+                            offset += change.position - change.previousPosition
+                            if (change.lifted()) {
+                                if (started) {
+                                    val velocity = tracker.calculateVelocity().x * inwardSign / density
+                                    if (BackSwipeRules.goesBack(offset.x * inwardSign, width, velocity)) onInvoked()
+                                    else onCancelled()
+                                    settled = true
+                                }
+                                break
                             }
-                            break
-                        }
-                        val decision = BackSwipeRules.decision(
-                            dx = offset.x * inwardSign,
-                            dy = offset.y,
-                            decisionDistancePx = decisionDistance,
-                            atEdge = true,
-                            claimed = true,
-                            heldForSeconds = 0.0,
-                            holdBegan = false,
-                        )
-                        if (decision == BackSwipeRules.Decision.Begin && !started) {
-                            started = true
-                            onStarted()
-                        }
-                        if (started) {
-                            onProgressed(
-                                (offset.x * inwardSign / (width / 3f)).coerceIn(0f, 1f),
-                                fromRightEdge,
+                            val decision = BackSwipeRules.decision(
+                                dx = offset.x * inwardSign,
+                                dy = offset.y,
+                                decisionDistancePx = decisionDistance,
+                                atEdge = true,
+                                claimed = true,
+                                heldForSeconds = 0.0,
+                                holdBegan = false,
                             )
+                            if (decision == BackSwipeRules.Decision.Begin && !started) {
+                                started = true
+                                onStarted()
+                            }
+                            if (started) {
+                                onProgressed(
+                                    (offset.x * inwardSign / (width / 2f)).coerceIn(0f, 1f),
+                                    fromRightEdge,
+                                )
+                            }
+                            tracker.addPosition(change.uptimeMillis, change.position)
                         }
-                        tracker.addPosition(change.uptimeMillis, change.position)
+                    } finally {
+                        if (started && !settled) onCancelled()
                     }
                 }
             },

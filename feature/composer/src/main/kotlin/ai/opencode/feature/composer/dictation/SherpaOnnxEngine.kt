@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -26,6 +27,8 @@ import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /**
  * The bundled engine (docs/android-12-support.md §10.3): Android's 33-only recognizer machinery
@@ -51,21 +54,30 @@ internal class SherpaOnnxEngine(
     private var download: Job? = null
 
     override suspend fun loadModel(install: Boolean): DictationModel {
+        // The bundled model transcribes English only; the platform recognizer covers the
+        // rest of the languages Android 12 offers.
+        if (!Locale.getDefault().language.equals("en", ignoreCase = true)) {
+            return platform().loadModel(install)
+        }
         if (!models.isPresent()) {
             // Warming up never downloads: the first press that needs the model fetches it.
             if (!install) throw DictationModelNotInstalled()
             // The download outlives the press — nobody holds a mic button for a 188 MB
             // download — so a released press cancels only its wait. The next press joins
             // the still-running job (checkpoint resume covers what landed).
-            val job = download ?: downloads.launch { runCatching { models.ensureDownloaded() } }
-                .also { download = it }
-            try {
-                job.join()
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            }
+            val job = download ?: downloads.launch {
+                try {
+                    models.ensureDownloaded()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (error: Exception) {
+                    AppLog.voice.error("dictation_model_download_failed type=${error.javaClass.simpleName}")
+                }
+            }.also { download = it }
+            job.join()
             if (!models.isPresent()) {
-                // The download genuinely failed: platform fallback for this press.
+                // A failed download must not be joined forever: the next press starts over.
+                download = null
                 AppLog.voice.error("dictation_model_unavailable")
                 return platform().loadModel(install)
             }
@@ -169,7 +181,9 @@ internal class SherpaOnnxEngine(
                 channel.close(DictationError.Recognizer(FAILED))
             } finally {
                 // The recognizer itself is shared between recordings: only this stream goes.
-                native.withLock { runCatching { stream.release() } }
+                // The release must run even when the press was cancelled while waiting for
+                // the recognizer's lock, or every overlap leaks a decoder state.
+                withContext(NonCancellable) { native.withLock { runCatching { stream.release() } } }
             }
         }
 
@@ -195,9 +209,11 @@ internal class SherpaOnnxEngine(
          * re-cased here: sentences start capital, the standalone I keeps its capital, the rest
          * reads lower. Acronyms can't survive this — the model can't tell them from words.
          */
+        val I_WORD = Regex("\\bi\\b")
+
         fun casing(text: String, capitalizeStart: Boolean): String {
             if (text.isBlank()) return text
-            val lowered = text.lowercase().replace(Regex("\\bi\\b")) { "I" }
+            val lowered = text.lowercase().replace(I_WORD) { "I" }
             val out = StringBuilder(lowered)
             var cap = capitalizeStart
             for (i in out.indices) {

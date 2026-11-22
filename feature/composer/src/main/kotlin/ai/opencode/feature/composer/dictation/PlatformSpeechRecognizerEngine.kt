@@ -9,6 +9,7 @@ import ai.opencode.feature.composer.DictationModel
 import ai.opencode.feature.composer.DictationModelNotInstalled
 import ai.opencode.feature.composer.DictationResult
 import ai.opencode.feature.composer.R
+import ai.opencode.feature.composer.awaitModelDownload
 import ai.opencode.core.log.AppLog
 import ai.opencode.core.strings.localized
 import android.content.Context
@@ -21,7 +22,6 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import androidx.annotation.RequiresApi
-import android.speech.ModelDownloadListener
 import android.speech.RecognitionListener
 import android.speech.RecognitionSupport
 import android.speech.RecognitionSupportCallback
@@ -32,7 +32,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -212,25 +211,6 @@ private class SpeechSetup(private val context: Context) {
     }
 }
 
-/** The service can retain the listener after destroy(). Detach the waiting press even if it never calls back. */
-@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-internal suspend fun awaitModelDownload(trigger: (ModelDownloadListener) -> Unit): Boolean? {
-    val result = CompletableDeferred<Boolean?>(currentCoroutineContext()[Job])
-    try {
-        trigger(object : ModelDownloadListener {
-            override fun onProgress(completedPercent: Int) = Unit
-            override fun onSuccess() { result.complete(true) }
-            override fun onScheduled() { result.complete(null) }
-            override fun onError(error: Int) {
-                if (result.complete(false)) AppLog.voice.error("Couldn’t install the dictation language ($error)")
-            }
-        })
-        return result.await()
-    } finally {
-        result.cancel()
-    }
-}
-
 /** A recognizer ready for one recording. Touched only on the main thread. */
 private class LoadedSpeech(
     private val recognizer: SpeechRecognizer,
@@ -260,23 +240,32 @@ private class LoadedSpeech(
     private fun start(input: DictationInput, format: DictationAudioFormat): ReceiveChannel<DictationResult> {
         val channel = Channel<DictationResult>(Channel.UNLIMITED)
         results = channel
-        val (read, write) = ParcelFileDescriptor.createPipe().let { it[0] to it[1] }
-        readEnd = read
-        val writer = PipeWriter(write).also { this.writer = it }
         recognizer.setRecognitionListener(Listener(channel))
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, read)
-            .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
-            .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
-            .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, TARGET.sampleRate)
-            // One session for the whole recording: it ends with the audio.
-            .putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
+        // Feeding the recognizer a pipe is API 33; below it, the recognizer opens the
+        // microphone itself and the app's capture stays unconnected (its buffer is bounded).
+        val pipe = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val (read, write) = ParcelFileDescriptor.createPipe().let { it[0] to it[1] }
+            readEnd = read
+            val pipe = PipeWriter(write)
+            this.writer = pipe
+            intent
+                .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, read)
+                .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+                .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                .putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, TARGET.sampleRate)
+                // One session for the whole recording: it ends with the audio.
+                .putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
+            pipe
+        } else {
+            null
+        }
         recognizer.startListening(intent)
-        input.connect(BufferConverter(format, TARGET), writer)
+        if (pipe != null) input.connect(BufferConverter(format, TARGET), pipe)
         return channel
     }
 

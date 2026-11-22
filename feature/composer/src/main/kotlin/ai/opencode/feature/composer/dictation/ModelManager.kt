@@ -17,7 +17,7 @@ import kotlin.coroutines.coroutineContext
 import kotlin.math.min
 
 /**
- * The bundled engine's model, in `files/dictation-model/`.sherpa-onnx publishes no Android model
+ * The bundled engine's model, in `files/dictation-model/`. sherpa-onnx publishes no Android model
  * package, so the model ships as loose ONNX files: [ModelFile]s are downloaded on the first
  * dictation press that needs them (the WP-04 Preparing phase covers the wait), with
  * checkpoint-resume into `.part` files, bounded retries and one shared time budget, then renamed
@@ -39,7 +39,8 @@ internal class ModelManager(private val context: Context, private val http: OkHt
         // A model upgrade leaves the previous revision's files behind: remove them, the
         // new names are what counts.
         val current = FILES.mapTo(mutableSetOf()) { it.name }
-        directory.listFiles()?.forEach { if (it.name !in current) it.delete() }
+        val checkpoints = FILES.mapTo(mutableSetOf()) { it.name + ".part" }
+        directory.listFiles()?.forEach { if (it.name !in current && it.name !in checkpoints) it.delete() }
         for (file in FILES) {
             val target = File(directory, file.name)
             if (target.length() >= file.minimumBytes) continue
@@ -125,12 +126,10 @@ internal class ModelManager(private val context: Context, private val http: OkHt
         const val JOINER = "joiner-epoch-99-avg-1.int8.onnx"
         const val ENCODER = "encoder-epoch-99-avg-1.int8.onnx"
 
-        // Streaming Zipformer English (LibriSpeech + GigaSpeech — broader real-world speech
-        // than the 2023-06-26 LibriSpeech-only model this replaces, which tested poorly on
-        // spontaneous phone speech), int8, full streaming context, pinned revision of the HF
-        // repo (2023-06-21); the byte counts are that revision's sizes, used as minimum
-        // sanity checks. The larger encoder trades a longer first download for roughly half
-        // the real-world error. Small files first, so a partial download keeps what it got.
+        // Streaming Zipformer English (LibriSpeech + GigaSpeech), int8, full streaming
+        // context, pinned revision of the HF repo (2023-06-21); the byte counts are that
+        // revision's sizes, used as minimum sanity checks. Small files first, so a partial
+        // download keeps what it got.
         val FILES = listOf(
             ModelFile(
                 TOKENS,

@@ -12,6 +12,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.coroutineContext
 import kotlin.math.min
@@ -20,8 +21,9 @@ import kotlin.math.min
  * The bundled engine's model, in `files/dictation-model/`. sherpa-onnx publishes no Android model
  * package, so the model ships as loose ONNX files: [ModelFile]s are downloaded on the first
  * dictation press that needs them (the WP-04 Preparing phase covers the wait), with
- * checkpoint-resume into `.part` files, bounded retries and one shared time budget, then renamed
- * into place atomically. Plain OkHttp, not `OpenCodeServer`: this is not an OpenCode request.
+ * checkpoint-resume into `.part` files, bounded retries and one shared time budget, then the
+ * *.onnx files are checked against the pinned revision's published SHA-256 and renamed into
+ * place atomically. Plain OkHttp, not `OpenCodeServer`: this is not an OpenCode request.
  */
 internal class ModelManager(private val context: Context, private val http: OkHttpClient = defaultClient()) {
     private val directory: File get() = File(context.filesDir, "dictation-model")
@@ -102,6 +104,10 @@ internal class ModelManager(private val context: Context, private val http: OkHt
                     output.flush()
                 }
             }
+            if (file.sha256 != null && !file.sha256.equals(sha256(part), ignoreCase = true)) {
+                part.delete()
+                throw IOException("Couldn’t verify ${file.name}")
+            }
             if (!part.renameTo(target)) {
                 // renameTo fails only across volumes; both live in filesDir, so this is unexpected.
                 throw IOException("Couldn’t place ${file.name}")
@@ -118,7 +124,21 @@ internal class ModelManager(private val context: Context, private val http: OkHt
 
     private fun file(name: String) = File(directory, name)
 
-    private class ModelFile(val name: String, val url: String, val minimumBytes: Long)
+    /** The file's SHA-256 as lowercase hex, streamed (the encoder is 188 MB). */
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(256 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+    }
+
+    private class ModelFile(val name: String, val url: String, val minimumBytes: Long, val sha256: String? = null)
 
     private companion object {
         const val TOKENS = "tokens.txt"
@@ -140,16 +160,19 @@ internal class ModelManager(private val context: Context, private val http: OkHt
                 DECODER,
                 "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21/resolve/main/$DECODER",
                 539_246,
+                "093e23c90869898f761f60aa3363f96d43b9c6e5c06a57860c3a5b3407ab8320",
             ),
             ModelFile(
                 JOINER,
                 "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21/resolve/main/$JOINER",
                 259_335,
+                "831477d390e59a61f1b6a6f763b9903e6c6366ff6034f1ddba613be82637122f",
             ),
             ModelFile(
                 ENCODER,
                 "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-21/resolve/main/$ENCODER",
                 187_823_992,
+                "32c98281c7bd8b63e3e142d007251b37f120572e8fdea9a4f5a79ce22b10ec4f",
             ),
         )
         val MAX_ATTEMPTS = 3

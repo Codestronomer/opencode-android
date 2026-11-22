@@ -179,9 +179,13 @@ private class SpeechSetup(private val context: Context) {
      */
     private suspend fun awaitInstalled(language: String): Boolean {
         val started = SystemClock.uptimeMillis()
+        var poll = INSTALL_POLL
         while (true) {
             val elapsed = (SystemClock.uptimeMillis() - started).milliseconds
-            delay(INSTALL_POLL)
+            delay(poll)
+            // Polling backs off: a five-minute install used to create and destroy a
+            // recognizer every second (~300 cycles on the slowest devices).
+            poll = (poll * 2).coerceAtMost(INSTALL_POLL_MAX)
             val support = support(onDevice = true) ?: break
             if (support.installed.any { it.equals(language, ignoreCase = true) }) {
                 AppLog.voice.info("dictation_language_installed waited=${elapsed.inWholeMilliseconds}ms")
@@ -206,6 +210,7 @@ private class SpeechSetup(private val context: Context) {
     private companion object {
         val mainExecutor = Executor(Handler(Looper.getMainLooper())::post)
         val INSTALL_POLL = 1.seconds
+        val INSTALL_POLL_MAX = 8.seconds
         val INSTALL_GRACE = 15.seconds
         val INSTALL_WAIT = 5.minutes
     }

@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -110,6 +112,7 @@ fun DotScopeView(
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     val isCovered = LocalDotScopeCovered.current
     val scope = remember { DotScopeRenderer.make() } ?: return
+    DisposableEffect(scope) { onDispose { scope.close() } }
     val density = LocalDensity.current.density
     var size by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableIntStateOf(0) }
@@ -208,6 +211,10 @@ class DotScopeRenderer private constructor() {
         private set
 
     private val raster = DotScopeRaster()
+
+    fun close() {
+        raster.close()
+    }
     private var grid: DotScopeGrid? = null
     private var field = FloatArray(0)
 
@@ -376,6 +383,10 @@ private data class FrameState(
  * approximation ([CanvasDots]) only if GLES is unusable.
  */
 private class DotScopeRaster {
+    fun close() {
+        renderer.close()
+    }
+
     private val renderer: Renderer =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Agsl() else Gl()
 
@@ -395,6 +406,7 @@ private class DotScopeRaster {
         fun pack(grid: DotScopeGrid, field: FloatArray)
         fun publish(grid: DotScopeGrid, mode: DotScopeMode, isDark: Boolean, state: FrameState, field: FloatArray)
         fun DrawScope.draw()
+        fun close() {}
     }
 
     /** The AGSL pass, API 33+, unchanged. */
@@ -485,6 +497,10 @@ private class DotScopeRaster {
      */
     private class Gl : Renderer {
         private val pass = GlPass(DotScopeShaders.dotScopeFragmentGlsl)
+
+        override fun close() {
+            pass.close()
+        }
         // Warmed with every publish, so if the GL pass fails the Canvas approximation takes
         // over on the same frame's state, with no blank frames.
         private val canvas = CanvasDots()
@@ -567,7 +583,7 @@ private class DotScopeRaster {
             }
             val width = ceil(size.width).toInt()
             val height = ceil(size.height).toInt()
-            val rendered = pass.render(width, height) { gl ->
+            val frame = pass.renderPersisted(width, height) { gl ->
                 GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
                 GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, fieldTexture)
                 GLES30.glUniform1i(gl.location("field"), 0)
@@ -584,11 +600,11 @@ private class DotScopeRaster {
                 GLES30.glUniform4f(gl.location("shape"), shape4[0], shape4[1], shape4[2], shape4[3])
                 GLES30.glUniform2f(gl.location("uSize"), width.toFloat(), height.toFloat())
             }
-            val frame = if (rendered) pass.bitmap(width, height) else null
             if (frame == null) {
                 with(canvas) { draw() }
             } else {
-                drawImage(frame.asImageBitmap())
+                // The readback's rows run bottom-up; the transform lands them upright.
+                scale(1f, -1f, pivot = Offset(width / 2f, height / 2f)) { drawImage(frame.asImageBitmap()) }
             }
         }
     }

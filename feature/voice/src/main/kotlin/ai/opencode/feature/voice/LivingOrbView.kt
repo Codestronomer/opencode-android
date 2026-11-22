@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -128,6 +130,7 @@ fun LivingOrbView(config: LivingOrbConfig, modifier: Modifier = Modifier, isHidd
     val reduceMotion = rememberReduceMotion()
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     val renderer = remember { WispOrbRenderer.make() } ?: return
+    DisposableEffect(renderer) { onDispose { renderer.close() } }
     val density = LocalDensity.current.density
     var size by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableIntStateOf(0) }
@@ -178,6 +181,10 @@ fun LivingOrbView(config: LivingOrbConfig, modifier: Modifier = Modifier, isHidd
  */
 class WispOrbRenderer private constructor() {
     private val raster = WispOrbRaster()
+
+    fun close() {
+        raster.close()
+    }
     private val sim = WispOrbSim()
     private var columns = 0
     /** Each cell's fast and slow phosphor for both voices, kept between frames. */
@@ -303,6 +310,10 @@ class WispOrbRenderer private constructor() {
  * approximation ([CanvasLens]) only if GLES is unusable.
  */
 private class WispOrbRaster {
+    fun close() {
+        renderer.close()
+    }
+
     private val renderer: Renderer =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Agsl() else Gl()
 
@@ -324,6 +335,7 @@ private class WispOrbRaster {
         fun upload(cells: FloatArray)
         fun publish(uniforms: WispOrbUniforms)
         fun DrawScope.draw()
+        fun close() {}
     }
 
     /** The AGSL pass, API 33+, unchanged. */
@@ -393,6 +405,10 @@ private class WispOrbRaster {
      */
     private class Gl : Renderer {
         private val pass = GlPass(WispOrbShaders.wispOrbFragmentGlsl)
+
+        override fun close() {
+            pass.close()
+        }
         // Warmed with every upload/publish, so if the GL pass fails the Canvas approximation
         // takes over on the same frame's state, with no blank frames.
         private val canvas = CanvasLens()
@@ -450,7 +466,7 @@ private class WispOrbRaster {
             val width = ceil(size.width).toInt()
             val height = ceil(size.height).toInt()
             val d = data
-            val rendered = pass.render(width, height) { gl ->
+            val frame = pass.renderPersisted(width, height) { gl ->
                 GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
                 GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
                 GLES30.glUniform1i(gl.location("cells"), 0)
@@ -460,11 +476,11 @@ private class WispOrbRaster {
                 }
                 GLES30.glUniform2f(gl.location("uSize"), width.toFloat(), height.toFloat())
             }
-            val frame = if (rendered) pass.bitmap(width, height) else null
             if (frame == null) {
                 with(canvas) { draw() }
             } else {
-                drawImage(frame.asImageBitmap())
+                // The readback's rows run bottom-up; the transform lands them upright.
+                scale(1f, -1f, pivot = Offset(width / 2f, height / 2f)) { drawImage(frame.asImageBitmap()) }
             }
         }
     }

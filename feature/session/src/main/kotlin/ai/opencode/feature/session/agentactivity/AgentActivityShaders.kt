@@ -13,7 +13,9 @@ import android.opengl.GLES30
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import kotlin.math.abs
@@ -307,7 +309,7 @@ void main() {
 
         override fun DrawScope.draw(packed: AgentActivityOrb.Packed, side: Float) {
             val size = ceil(side).toInt().coerceAtLeast(1)
-            val rendered = pass.render(size, size) { gl ->
+            val bitmap = pass.renderPersisted(size, size) { gl ->
                 GLES30.glUniform4f(
                     gl.location("header0"),
                     packed.header0[0], packed.header0[1], packed.header0[2], packed.header0[3],
@@ -324,11 +326,11 @@ void main() {
                 GLES30.glUniform4fv(gl.location("cells"), 49, packed.cells, 0)
                 GLES30.glUniform2f(gl.location("uSize"), size.toFloat(), size.toFloat())
             }
-            val bitmap = if (rendered) pass.bitmap(size, size) else null
             if (bitmap == null) {
                 with(canvas) { draw(packed, side) }
             } else {
-                drawImage(bitmap.asImageBitmap())
+                // The readback's rows run bottom-up; the transform lands them upright.
+                scale(1f, -1f, pivot = Offset(size / 2f, size / 2f)) { drawImage(bitmap.asImageBitmap()) }
             }
         }
     }

@@ -14,6 +14,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -186,7 +187,6 @@ vec4 glow(vec2 position) {
   if ((fillLift <= 1e-4 && innerGlow <= 1e-4) || size.x <= 0.0 || size.y <= 0.0) {
     return vec4(0.0);
   }
-  // The Metal shader works in points; do the same so the 7 pt falloff matches.
   vec2 sizePt = size / density;
   vec2 halfSize = sizePt * 0.5;
   vec2 p = position / density - halfSize;
@@ -230,6 +230,7 @@ void main() {
 fun AgentMessageRevealLight(light: Double, corners: UserSurfaceCorners = UserSurfaceCorners.round, modifier: Modifier = Modifier) {
     val dark = OpenCodeTheme.colors.isDark
     val glow = remember { AgentRevealGlow() }
+    DisposableEffect(glow) { onDispose { glow.close() } }
     Box(
         modifier
             .clip(corners.shape(TranscriptMetrics.bubbleCornerRadius))
@@ -257,8 +258,13 @@ class AgentRevealGlow(private val force: Mode? = null) {
         with(renderer) { draw(light, corners, dark) }
     }
 
+    fun close() {
+        renderer.close()
+    }
+
     private interface Renderer {
         fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean)
+        fun close() {}
     }
 
     /** The AGSL pass, API 33+, unchanged. */
@@ -310,6 +316,10 @@ class AgentRevealGlow(private val force: Mode? = null) {
             } else {
                 drawImage(bitmap.asImageBitmap())
             }
+        }
+
+        override fun close() {
+            pass.close()
         }
     }
 

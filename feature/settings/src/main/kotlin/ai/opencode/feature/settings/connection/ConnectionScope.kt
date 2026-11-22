@@ -3,7 +3,6 @@ package ai.opencode.feature.settings.connection
 import ai.opencode.core.motion.rememberReduceMotion
 import ai.opencode.core.ui.OpenCodeTheme
 import ai.opencode.core.ui.gl.GlPass
-import ai.opencode.core.ui.gl.GlPixel
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.RuntimeShader
@@ -16,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
@@ -58,6 +59,7 @@ fun ConnectionScopeView(monitor: ConnectionMonitor, isHidden: Boolean, modifier:
     val isDark = OpenCodeTheme.colors.isDark
     val highContrast = OpenCodeTheme.colors.highContrast
     val renderer = remember { ConnectionScopeRenderer() }
+    DisposableEffect(renderer) { onDispose { renderer.close() } }
     var frame by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(isPaused, reduceMotion) {
@@ -140,12 +142,9 @@ internal data class ScopePalette(val main: ScopeColor, val mainCore: ScopeColor,
 
 /**
  * Rasterises the trace on the CPU each frame and draws the lit grid. A plain object owned by the
- * view (per-frame motion lives here, not in a reducer). [force] pins a renderer for the shader
- * lab's side-by-side golden diff; production callers take the default (null).
+ * view (per-frame motion lives here, not in a reducer).
  */
-internal class ConnectionScopeRenderer(private val force: Mode? = null) {
-    enum class Mode { Agsl, Gl }
-
+internal class ConnectionScopeRenderer {
     companion object {
         /**
          * Where the trace fades in from each side of the box, and over how long (dp): its visible
@@ -180,11 +179,12 @@ internal class ConnectionScopeRenderer(private val force: Mode? = null) {
     var highContrast = false
 
     private val raster = ConnectionTraceRaster()
-    private val renderer: Renderer = when {
-        force == Mode.Gl -> GlScope()
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> AgslScope()
-        else -> GlScope()
+    fun close() {
+        renderer.close()
     }
+
+    private val renderer: Renderer =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslScope() else GlScope()
     private var grid: DotScopeGrid? = null
     private var pixels = IntArray(0)
     private var lastFrame: Double? = null
@@ -235,6 +235,7 @@ internal class ConnectionScopeRenderer(private val force: Mode? = null) {
     /** Where the lit field draws: the AGSL pass on 33+, its GLSL port on 12, Canvas if GLES is unusable. */
     private interface Renderer {
         fun DrawScope.draw(field: IntArray, grid: DotScopeGrid, palette: ScopePalette, trace: Pair<ScopeColor, ScopeColor>, dark: Boolean, highContrast: Boolean)
+        fun close() {}
     }
 
     /** The AGSL pass, API 33+, unchanged: the field as a `BitmapShader` child. */
@@ -294,14 +295,13 @@ internal class ConnectionScopeRenderer(private val force: Mode? = null) {
             val height = ceil(size.height).toInt()
             if (width < 1 || height < 1) return
             val bitmap = bitmapFor(field, grid)
-            val uploaded = pass.uploadTexture(bitmap)
+            val uploaded = pass.uploadTexture(bitmap, texture)
             if (uploaded == 0) {
                 with(canvas) { draw(field, grid, palette, trace, dark, highContrast) }
                 return
             }
-            val previous = texture
             texture = uploaded
-            val rendered = pass.render(width, height) { gl ->
+            val output = pass.renderPersisted(width, height) { gl ->
                 GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
                 GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, uploaded)
                 GLES30.glUniform1i(gl.location("field"), 0)
@@ -316,13 +316,16 @@ internal class ConnectionScopeRenderer(private val force: Mode? = null) {
                 GLES30.glUniform4f(gl.location("alertCore"), palette.alertCore.r, palette.alertCore.g, palette.alertCore.b, palette.alertCore.a)
                 GLES30.glUniform2f(gl.location("uSize"), size.width, size.height)
             }
-            val output = if (rendered) pass.bitmap(width, height) else null
             if (output == null) {
                 with(canvas) { draw(field, grid, palette, trace, dark, highContrast) }
             } else {
-                drawImage(output.asImageBitmap())
+                // The readback's rows run bottom-up; the transform lands them upright.
+                scale(1f, -1f, pivot = Offset(width / 2f, height / 2f)) { drawImage(output.asImageBitmap()) }
             }
-            if (previous != 0) GlPixel.run { GLES30.glDeleteTextures(1, intArrayOf(previous), 0) }
+        }
+
+        override fun close() {
+            pass.close()
         }
 
         private fun bitmapFor(field: IntArray, grid: DotScopeGrid): Bitmap {

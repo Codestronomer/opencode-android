@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -26,7 +27,9 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -120,6 +123,8 @@ internal fun SignalFieldView(scene: SignalFieldScene, modifier: Modifier = Modif
     val reduceMotion = rememberReduceMotion()
     val colors = OpenCodeTheme.colors
     val renderer = remember { SignalFieldRenderer() }
+    val layer = remember { SignalFieldLayer() }
+    DisposableEffect(renderer, layer) { onDispose { layer.close() } }
     val currentScene by rememberUpdatedState(scene)
     val isDark by rememberUpdatedState(colors.isDark)
     val highContrast by rememberUpdatedState(colors.highContrast)
@@ -144,7 +149,6 @@ internal fun SignalFieldView(scene: SignalFieldScene, modifier: Modifier = Modif
             .fillMaxSize()
             .clearAndSetSemantics { }
             .drawWithCache {
-                val layer = SignalFieldLayer()
                 onDrawBehind {
                     renderer.isDark = isDark
                     renderer.highContrast = highContrast
@@ -158,17 +162,15 @@ internal fun SignalFieldView(scene: SignalFieldScene, modifier: Modifier = Modif
 /**
  * The field's renderer, one per API level: the AGSL pass on 33+, and on Android 12 the same
  * maths ported to GLSL ES 3.0, rendered off-screen by the shared GLES context ([GlPass]) and
- * composited as a bitmap. [force] pins a renderer for the shader lab's side-by-side golden
- * diff; production callers take the default (null).
+ * composited as a bitmap.
  */
-internal class SignalFieldLayer(private val force: Mode? = null) {
-    enum class Mode { Agsl, Gl }
-
-    private val renderer: Renderer = when {
-        force == Mode.Gl -> GlField()
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> AgslField()
-        else -> GlField()
+internal class SignalFieldLayer {
+    fun close() {
+        renderer.close()
     }
+
+    private val renderer: Renderer =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslField() else GlField()
 
     fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double) {
         with(renderer) { draw(field, scene, now) }
@@ -176,6 +178,7 @@ internal class SignalFieldLayer(private val force: Mode? = null) {
 
     private interface Renderer {
         fun DrawScope.draw(field: SignalFieldRenderer, scene: SignalFieldScene, now: Double)
+        fun close() {}
     }
 
     /** The AGSL pass, API 33+, unchanged. */
@@ -203,13 +206,18 @@ internal class SignalFieldLayer(private val force: Mode? = null) {
             if (width < 1 || height < 1) return
             val uniforms = SignalFieldUniforms()
             if (!field.draw(uniforms, scene, now, size.width, size.height, density)) return
-            if (pass.render(width, height) { gl ->
-                    uniforms.applyTo(gl)
-                    GLES30.glUniform2f(gl.location("uSize"), size.width, size.height)
-                }
-            ) {
-                pass.bitmap(width, height)?.let { drawImage(it.asImageBitmap()) }
+            val output = pass.renderPersisted(width, height) { gl ->
+                uniforms.applyTo(gl)
+                GLES30.glUniform2f(gl.location("uSize"), size.width, size.height)
             }
+            if (output != null) {
+                // The readback's rows run bottom-up; the transform lands them upright.
+                scale(1f, -1f, pivot = Offset(width / 2f, height / 2f)) { drawImage(output.asImageBitmap()) }
+            }
+        }
+
+        override fun close() {
+            pass.close()
         }
     }
 }

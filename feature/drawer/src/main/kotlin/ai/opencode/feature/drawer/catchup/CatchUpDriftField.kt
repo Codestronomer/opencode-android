@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -72,6 +73,7 @@ fun CatchUpDriftFieldView(isFinished: Boolean, modifier: Modifier = Modifier) {
     val safeBottom = insets.getBottom(density)
 
     val renderer = remember { CatchUpDriftRenderer() }
+    DisposableEffect(renderer) { onDispose { renderer.close() } }
     var finishStart by remember { mutableStateOf<Double?>(null) }
     val now = remember { mutableDoubleStateOf(CatchUpDriftRenderer.clock()) }
 
@@ -130,6 +132,10 @@ internal fun rememberTouchExplorationEnabled(): Boolean {
 internal class CatchUpDriftRenderer {
     private val renderer: FieldRenderer =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) AgslField() else GlField()
+
+    fun close() {
+        renderer.close()
+    }
     private val startTime = clock()
 
     internal fun DrawScope.draw(
@@ -156,6 +162,7 @@ internal class CatchUpDriftRenderer {
         val isStill: Boolean
 
         fun DrawScope.draw(frame: Frame)
+        fun close() {}
     }
 
     /** One frame's values, the shader's uniforms shared by both renderers. */
@@ -278,6 +285,10 @@ internal class CatchUpDriftRenderer {
 
         private val pass = GlPass(SHADER_GLSL)
         private val still by lazy { StillField() }
+
+        override fun close() {
+            pass.close()
+        }
 
         override fun DrawScope.draw(frame: Frame) {
             val width = ceil(frame.widthPx).toInt().coerceAtLeast(1)

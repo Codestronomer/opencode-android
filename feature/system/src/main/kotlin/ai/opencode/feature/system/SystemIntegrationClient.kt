@@ -12,6 +12,7 @@ import ai.opencode.server.friendlyName
 import ai.opencode.server.model.OpenCodeProject
 import ai.opencode.server.model.OpenCodeSession
 import android.content.Context
+import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -213,7 +214,9 @@ internal object SystemIntegrationEffects {
                     directory = directory.publish(job.server)
                     directory.write(file)
                     AppLog.app.debug { "System directory published sessions=${job.server.sessions.size}" }
-                    SystemSearchIndex.index(context, job.server, previous)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        SystemSearchIndex.index(context, job.server, previous)
+                    }
                 }
                 updateControls(context, directory)
                 setQuickActions(context, SystemQuickAction.items(job.server, job.voiceAvailable))
@@ -224,7 +227,9 @@ internal object SystemIntegrationEffects {
                 directory = directory.removeServer(job.key)
                 directory.write(file)
                 updateControls(context, directory)
-                SystemSearchIndex.remove(context, job.key)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    SystemSearchIndex.remove(context, job.key)
+                }
                 if (wasCurrent) setQuickActions(context, emptyList())
             }
         }

@@ -6,6 +6,7 @@ import ai.opencode.core.dependencies.dependency
 import android.app.LocaleConfig
 import android.app.LocaleManager
 import android.content.Context
+import android.content.res.Resources
 import android.icu.util.ULocale
 import android.os.Build
 import android.os.LocaleList
@@ -30,6 +31,9 @@ class AppLanguageClient(
     val set: (Locale?) -> Unit = {},
 ) {
     companion object Key : DependencyKey<AppLanguageClient> {
+        override val testValue: AppLanguageClient
+            get() = AppLanguageClient()
+
         override val liveValue: AppLanguageClient by lazy {
             val context = dependency(AppContext)
             // LocaleManager and LocaleConfig are API 33; appcompat wraps both (and stores the
@@ -64,9 +68,14 @@ class AppLanguageClient(
             } else {
                 AppLanguageClient(
                     supported = { localesConfigLocales(context) },
-                    current = { AppCompatDelegate.getApplicationLocales().get(0) },
+                    current = {
+                        val locales = AppCompatDelegate.getApplicationLocales()
+                        if (locales.isEmpty) null else locales.get(0)
+                    },
                     systemLocales = {
-                        val locales = LocaleList.getDefault()
+                        // The app's own choice overrides LocaleList.getDefault(); the system
+                        // resources keep the phone's locales.
+                        val locales = Resources.getSystem().configuration.locales
                         val list = mutableListOf<Locale>()
                         for (index in 0 until locales.size()) list.add(locales.get(index))
                         if (list.isEmpty()) list.add(Locale.getDefault())
@@ -108,7 +117,18 @@ class AppLanguageClient(
             }
             return context.resources.assets.locales
                 .filter { tag -> Regex("[a-z]{2,3}([-_][A-Za-z0-9]+)*").matches(tag) }
-                .map { tag -> Locale.forLanguageTag(tag.replaceFirst(Regex("-(?=[A-Za-z]{2}$)"), "")) }
+                .map { tag -> qualifierToLocale(tag) }
+                .distinctBy { it.toLanguageTag() }
+        }
+
+        /** The asset manager reports resource qualifiers (`zh-rCN`), not BCP 47 tags. */
+        private fun qualifierToLocale(tag: String): Locale {
+            val bcp47 = if (tag.startsWith("b+")) {
+                tag.removePrefix("b+").replace('+', '-')
+            } else {
+                tag.replace(Regex("-r([A-Za-z]{2})$"), "-$1")
+            }
+            return Locale.forLanguageTag(bcp47)
         }
     }
 }

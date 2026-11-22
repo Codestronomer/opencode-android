@@ -17,6 +17,8 @@ import android.app.appsearch.RemoveByDocumentIdRequest
 import android.app.appsearch.SearchSpec
 import android.app.appsearch.SetSchemaRequest
 import android.content.Context
+import android.os.Build
+import androidx.annotation.RequiresApi
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,7 +51,10 @@ internal object SystemSearchIndex {
     private var session: AppSearchSession? = null
 
     /** Indexes what changed and removes what left the list (a deletion, or a session that aged out of it). */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     suspend fun index(context: Context, server: SessionDirectory.Server, previous: SessionDirectory.Server?) = lock.withLock {
+        // AppSearch is platform API only from 33; touching these classes below it throws.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@withLock
         val current = server.sessions.mapTo(HashSet()) { it.id }
         val removed = previous?.sessions.orEmpty().map { it.id }.filter { it !in current }
         val unchanged = previous?.sessions.orEmpty().toSet()
@@ -71,7 +76,9 @@ internal object SystemSearchIndex {
     }
 
     /** Removes a forgotten server's sessions. */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     suspend fun remove(context: Context, serverKey: String) = lock.withLock {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@withLock
         val session = session(context) ?: return@withLock
         val spec = SearchSpec.Builder().addFilterNamespaces(serverKey).build()
         val result = suspendCancellableCoroutine { continuation ->

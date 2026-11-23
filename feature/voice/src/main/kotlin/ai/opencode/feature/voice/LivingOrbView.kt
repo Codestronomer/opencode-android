@@ -218,8 +218,17 @@ class WispOrbRenderer private constructor() {
     }
 
     /** Steps (or stills) the orb for the frame at [nowSeconds] and uploads it. */
+    private var drawFactor = 1f
+
     fun render(nowSeconds: Double, pixelWidth: Int, pixelHeight: Int, scale: Float): Boolean {
         if (pixelWidth < 1 || pixelHeight < 1 || scale <= 0f) return false
+        // The bloom renders at reduced resolution, so its uniforms (pixels per point, clip
+        // rects, centres) are built for the smaller target; points stay identical.
+        val factor = raster.renderFactor(config.bloom != null)
+        drawFactor = factor
+        val width = max(1, (pixelWidth * factor).toInt())
+        val height = max(1, (pixelHeight * factor).toInt())
+        val uniformScale = scale * factor
         val tuning = tuning.clamped()
         prepare(tuning.columns)
         val dt = AnimationTimeScale.shared.scaledDelta(max(0.0, min(0.05, nowSeconds - (last ?: nowSeconds))))
@@ -232,19 +241,19 @@ class WispOrbRenderer private constructor() {
         }
         sim.setMuted(config.isMuted)
         sim.step(dt.toFloat(), user, agent, config.wispState(user), isStill, tuning)
-        val uniforms = sim.frame(tuning, placement(pixelWidth, pixelHeight, scale, tuning))
+        val uniforms = sim.frame(tuning, placement(width, height, uniformScale, tuning))
         config.bloom?.let { bloom ->
             val clip = uniforms[WispOrbUniforms.clipShape]
             if (bloom.visible != null) {
                 val edge = bloom.edge(feather = 8.0)
                 uniforms[WispOrbUniforms.clipRect] = floatArrayOf(
-                    edge.shape.left * scale, edge.shape.top * scale, edge.shape.right * scale, edge.shape.bottom * scale,
+                    edge.shape.left * uniformScale, edge.shape.top * uniformScale, edge.shape.right * uniformScale, edge.shape.bottom * uniformScale,
                 )
-                clip[0] = edge.corner * scale
-                clip[1] = edge.feather * scale
+                clip[0] = edge.corner * uniformScale
+                clip[1] = edge.feather * uniformScale
             }
-            clip[2] = min(bloom.bottom, 1e6f) * scale
-            clip[3] = max(0.5f, bloom.fade) * scale
+            clip[2] = min(bloom.bottom, 1e6f) * uniformScale
+            clip[3] = max(0.5f, bloom.fade) * uniformScale
             uniforms[WispOrbUniforms.clipShape] = clip
         }
         for (i in 0 until traceCount) {
@@ -260,7 +269,7 @@ class WispOrbRenderer private constructor() {
     }
 
     fun DrawScope.draw() {
-        with(raster) { draw() }
+        with(raster) { draw(drawFactor) }
     }
 
     /**
@@ -299,6 +308,7 @@ class WispOrbRenderer private constructor() {
         /** `WISP_TRACE`. */
         const val traceCount = 64
 
+
         fun make(): WispOrbRenderer? = runCatching { WispOrbRenderer() }.getOrNull()
     }
 }
@@ -309,6 +319,9 @@ class WispOrbRenderer private constructor() {
  * cells upload as a texture the ported pass samples at the two texels per LED — and the Canvas
  * approximation ([CanvasLens]) only if GLES is unusable.
  */
+/** The bloom layer's GL render scale; its dot geometry is resolution-independent. */
+private const val BLOOM_RENDER_SCALE = 0.5f
+
 private class WispOrbRaster {
     fun close() {
         renderer.close()
@@ -325,8 +338,11 @@ private class WispOrbRaster {
 
     fun publish(uniforms: WispOrbUniforms) = renderer.publish(uniforms)
 
-    fun DrawScope.draw() {
-        with(renderer) { draw() }
+    /** The bloom spans most of the screen; GL renders it at half resolution (geometry is in points). */
+    fun renderFactor(isBloom: Boolean): Float = if (renderer is Gl && isBloom) BLOOM_RENDER_SCALE else 1f
+
+    fun DrawScope.draw(factor: Float) {
+        with(renderer) { draw(factor) }
     }
 
     private interface Renderer {
@@ -334,7 +350,7 @@ private class WispOrbRaster {
         fun prepare(columns: Int)
         fun upload(cells: FloatArray)
         fun publish(uniforms: WispOrbUniforms)
-        fun DrawScope.draw()
+        fun DrawScope.draw(factor: Float)
         fun close() {}
     }
 
@@ -390,7 +406,7 @@ private class WispOrbRaster {
             if (brush == null) brush = ShaderBrush(shader)
         }
 
-        override fun DrawScope.draw() {
+        override fun DrawScope.draw(factor: Float) {
             val brush = brush ?: return
             drawRect(brush)
         }
@@ -458,15 +474,17 @@ private class WispOrbRaster {
             data = uniforms.data.copyOf()
         }
 
-        override fun DrawScope.draw() {
+        override fun DrawScope.draw(factor: Float) {
             if (texture == 0 || data.isEmpty()) {
-                with(canvas) { draw() }
+                with(canvas) { draw(factor) }
                 return
             }
             val width = ceil(size.width).toInt()
             val height = ceil(size.height).toInt()
+            val renderWidth = max(1, (width * factor).toInt())
+            val renderHeight = max(1, (height * factor).toInt())
             val d = data
-            val frame = pass.renderPersisted(width, height) { gl ->
+            val frame = pass.renderPersisted(renderWidth, renderHeight) { gl ->
                 GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
                 GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
                 GLES30.glUniform1i(gl.location("cells"), 0)
@@ -474,13 +492,15 @@ private class WispOrbRaster {
                     val o = slot * 4
                     GLES30.glUniform4f(gl.location(name), d[o], d[o + 1], d[o + 2], d[o + 3])
                 }
-                GLES30.glUniform2f(gl.location("uSize"), width.toFloat(), height.toFloat())
+                GLES30.glUniform2f(gl.location("uSize"), renderWidth.toFloat(), renderHeight.toFloat())
             }
             if (frame == null) {
-                with(canvas) { draw() }
+                with(canvas) { draw(factor) }
             } else {
                 // The readback's rows run bottom-up; the transform lands them upright.
-                scale(1f, -1f, pivot = Offset(width / 2f, height / 2f)) { drawImage(frame.asImageBitmap()) }
+                scale(1f, -1f, pivot = Offset(width / 2f, height / 2f)) {
+                    drawImage(frame.asImageBitmap(), dstSize = IntSize(width, height))
+                }
             }
         }
     }
@@ -575,7 +595,7 @@ private class WispOrbRaster {
         }
         private val mutePaint = Paint().apply { style = Paint.Style.STROKE }
 
-        override fun DrawScope.draw() {
+        override fun DrawScope.draw(factor: Float) {
             if (cols <= 0 || ppp <= 0f) return
             val r = radius * ppp
             val cx = centreX

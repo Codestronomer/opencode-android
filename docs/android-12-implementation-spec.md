@@ -400,6 +400,16 @@ drove the paths the fixes changed:
   janky, 50th/90th/95th percentile 13 ms, well under the 16.7 ms budget.
 - **GL memory**: `EGL mtrack` 52,728 KB and `GL mtrack` 576 KB were unchanged after five
   Settings open/close cycles — `GlPass.close()` is effective.
-- Not covered by this pass: Catch Up drift, DotScope/LivingOrb (need a call),
-  onboarding's SignalField (needs first run), and the dictation download/hash (the
-  188 MB model was not re-downloaded on the storage-constrained device).
+- **Voice call verified on 12**: starting a call from the composer connected and
+  rendered the LivingOrb (docked face and expanded sheet) through the GL port, with the
+  `shader-gl` thread alive and no `gl_*` errors across the session.
+- **Call-sheet performance**: the expanded sheet measured 48 ms median / 97% janky with
+  the bloom at full raster resolution. The bloom's shader geometry is in points, so it
+  now renders at half resolution with every pixel-space uniform scaled by the same
+  factor and the bitmap stretched by the flipped draw (`276552ac`); the same screen then
+  measured 29 ms / 22% janky. A plain session measured 29 ms under live streaming, so
+  the orb is no longer the bottleneck there; the remaining cost is the transcript
+  window on this 2019 device at 560 dpi.
+- Not covered by this pass: Catch Up drift, onboarding's SignalField (needs first run),
+  and the dictation download/hash (the 188 MB model was not re-downloaded on the
+  storage-constrained device).

@@ -376,3 +376,30 @@ AGENTS.md requires the coordinator's approval for new test files).
   which is a refactor of its own rather than a review fix.
 - Verification: `scripts/check.sh` (assemble + lint + unit tests) green at minSdk 31;
   device QA re-run on the Galaxy S10+ for the language, dictation and back paths.
+
+### Device QA after the review fixes (Galaxy S10+, Android 12 / API 31)
+
+Installed the reviewed build (debug, `ai.opencode.mobilecode.debug`) over wireless ADB and
+drove the paths the fixes changed:
+
+- **C1 verified live**: Settings › Language opens with System Default selected — the
+  empty-`LocaleList` case that crashed on a fresh install. No crash in the buffer.
+- **I10 verified live**: switching to Deutsch recreated the app localized; reopening the
+  picker still showed *English (United States)* on the System Default row (the phone's
+  locale, not the app's). Switching back restored English. Round trip clean.
+- **I11 verified live**: the picker listed all 56 languages with native names, including
+  简体中文 and 繁體中文 — no qualifier-mangled entries.
+- **C2 holds on 12**: the app connected to a live server, populated the session list and
+  published the directory; the process stayed up for the whole session, with zero
+  `NoClassDefFoundError` and zero crashes (the AppSearch publish path previously died
+  here).
+- **GL rendering verified**: the Settings connection card's ConnectionScope rendered the
+  full lit-dot EKG trace, correctly oriented (the `renderPersisted` + flipped-draw path),
+  with the `shader-gl` thread alive and no `gl_*` failure logs.
+- **Performance**: 601 frames on the Settings screen with the scope animating — 0.33%
+  janky, 50th/90th/95th percentile 13 ms, well under the 16.7 ms budget.
+- **GL memory**: `EGL mtrack` 52,728 KB and `GL mtrack` 576 KB were unchanged after five
+  Settings open/close cycles — `GlPass.close()` is effective.
+- Not covered by this pass: Catch Up drift, DotScope/LivingOrb (need a call),
+  onboarding's SignalField (needs first run), and the dictation download/hash (the
+  188 MB model was not re-downloaded on the storage-constrained device).

@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">གཡོག་བཀོལ་དོ།</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">གཡོག་བཀོལ་མི་ཡན་ལག་ལས་ཚབ་དང་ཤལ་ཚུ་སྟོན།</string>
+    <string name="session_background_work_show_label">གཡོག་བཀོལ་མི་ཡན་ལག་ལས་ཚབ་ཚུ་དང་ ཡིག་ཚུགས་ཚུ་ ཤལ་ཚུ་སྟོན།</string>
     <string name="session_background_work_collapsed_description">བརྡིབས་ཡོདཔ།</string>
     <string name="session_background_work_subagents_title">ཡན་ལག་ལས་ཚབ་ཚུ།</string>
     <string name="session_background_work_open_subagent_label">ཡན་ལག་ལས་ཚབ་ཀྱི་ལཱ་ཡུན་ཁ་ཕྱེ།</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">མ་ཤེསཔ་</string>
     <string name="session_sheet_context_tokens">ཊོ་ཀེན་ %1$s</string>
     <string name="session_sheet_cost">ཟད་འགྲོ།</string>
+    <string name="session_sheet_media">བརྡ་བརྒྱུད།</string>
+    <string name="session_sheet_media_value">ཡིག་སྣོད་དང་འབྲེལ་མཐུད་ཚུ།</string>
     <string name="session_always_notify">ཨ་རྟག་ར་བརྡ་བསྐུལ་འབད།</string>
     <string name="session_always_notify_message_phone">ནཱ་ལས་མ་བཏང་མི་ཚུ་ཨིན་རུང་ ལན་འདེབས་རེ་མཇུག་བསྡུཝ་ད་ འགྲུལ་འཕྲིན་འདི་ལུ་བརྡ་བསྐུལ་འབད།</string>
     <string name="session_always_notify_message_tablet">ནཱ་ལས་མ་བཏང་མི་ཚུ་ཨིན་རུང་ ལན་འདེབས་རེ་མཇུག་བསྡུཝ་ད་ ཊེབ་ལེཊ་འདི་ལུ་བརྡ་བསྐུལ་འབད།</string>
@@ -192,7 +194,15 @@
     <plurals name="session_background_work_shell_count">
         <item quantity="other">ཤལ་ %1$d</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="other">ཡིག་ཚུགས་ %1$d</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">ཡིག་ཚུགས་ཚུ།</string>
+    <string name="session_background_work_stop_script_label">ཡིག་ཚུགས་བཀག</string>
+    <string name="session_background_work_stop_subagent_label">ཡན་ལག་ལས་ཚབ་བཀག</string>
+    <string name="session_background_work_stop_script_failed">ཡིག་ཚུགས་བཀག་མ་ཚུགས།</string>
+    <string name="session_background_work_stop_subagent_failed">ཡན་ལག་ལས་ཚབ་བཀག་མ་ཚུགས།</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">འཕྲིན་དོན་གཏང་།</string>
@@ -285,4 +295,26 @@
     <string name="session_shell_stop_failed">ཤལ་བཀག་མ་ཚུགས།</string>
     <string name="session_quote_remove_description">ལུང་འདྲེན་རྩ་བསྐྲད་གཏང་།</string>
     <string name="session_quote_comment_placeholder">བསམ་འཆར་ཡོད་པ་ཅིན་ ཁ་སྐོང་འབད…</string>
+    <string name="session_media_title">ལཱ་ཡུན་གྱི་བརྡ་བརྒྱུད།</string>
+    <string name="session_media_filter_media">བརྡ་བརྒྱུད།</string>
+    <string name="session_media_filter_files">ཡིག་སྣོད་ཚུ།</string>
+    <string name="session_media_filter_links">འབྲེལ་མཐུད་ཚུ།</string>
+    <string name="session_media_layout_description">བརྡ་བརྒྱུད་ཀྱི་སྒྲིག་བཀོད།</string>
+    <string name="session_media_layout_tiles">མགྱོགས་ཨེབ་ཚུ།</string>
+    <string name="session_media_layout_list">ཐོ</string>
+    <string name="session_media_origin_user">ཁྱོད་ཀྱིས་བཏང་ཡོདཔ།</string>
+    <string name="session_media_origin_agent">ལས་ཚབ་གྱིས་བགོ་བཤའ་རྐྱབ་ཡོདཔ།</string>
+    <string name="session_media_open_click_label">ཕྱེ།</string>
+    <string name="session_media_open_link_click_label">འབྲེལ་མཐུད་ཁ་ཕྱེ།</string>
+    <string name="session_media_empty_media_title">བརྡ་བརྒྱུད་མེད།</string>
+    <string name="session_media_empty_media_message">ལཱ་ཡུན་འདི་ནང་བགོ་བཤའ་རྐྱབ་ཡོད་པའི་པར་དང་ གློག་བརྙན་ སྒྲ་ཚུ་འདིར་སྟོནམ་ཨིན།</string>
+    <string name="session_media_empty_files_title">ཡིག་སྣོད་མེད།</string>
+    <string name="session_media_empty_files_message">ལཱ་ཡུན་འདི་ལས་ཡིག་ཆ་དང་སྦྱར་ཡོད་པའི་ཡིག་གུ་ཚུ་འདིར་སྟོནམ་ཨིན།</string>
+    <string name="session_media_empty_links_title">འབྲེལ་མཐུད་མེད།</string>
+    <string name="session_media_empty_links_message">ལཱ་ཡུན་འདི་ནང་བགོ་བཤའ་རྐྱབ་ཡོད་པའི་ཝེབ་འབྲེལ་མཐུད་ཚུ་འདིར་སྟོནམ་ཨིན།</string>
+    <string name="session_media_earlier_note">ཧེ་མའི་འཕྲིན་དོན་ཚུ་ད་རུང་མངོན་གསལ་མ་འབད་བས།</string>
+    <string name="session_media_load_earlier">ཧེ་མའི་འཕྲིན་དོན་ཚུ་མངོན་གསལ་འབད།</string>
+    <string name="session_media_loading_earlier">མངོན་གསལ་འབད་དོ།</string>
+    <string name="session_media_earlier_failed">ཧེ་མའི་འཕྲིན་དོན་ཚུ་མངོན་གསལ་འབད་མ་ཚུགས། ཁྱོད་ཀྱི་མཐུད་ལམ་ཞིབ་དཔྱད་འབད་དེ་བསྐྱར་དུ་ཚོད་ལྟ་འབད།</string>
+    <string name="session_media_earlier_nothing_new">ད་ལྟོ་མངོན་གསལ་འབད་ཡོད་པའི་འཕྲིན་དོན་ཚུ་ནང་གསརཔ་ག་ཅི་ཡང་མེད། ཧེ་མའི་ཚུ་ནང་མང་སུ་ཡོད་ཚུགས།</string>
 </resources>

@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">Изпълнява се</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Показване на работещите субагенти и черупки</string>
+    <string name="session_background_work_show_label">Показване на работещите субагенти, скриптове и shell процеси</string>
     <string name="session_background_work_collapsed_description">Свито</string>
     <string name="session_background_work_subagents_title">Субагенти</string>
     <string name="session_background_work_open_subagent_label">Отворете сесията на субагента</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Неизвестен</string>
     <string name="session_sheet_context_tokens">%1$s токена</string>
     <string name="session_sheet_cost">Цена</string>
+    <string name="session_sheet_media">Медия</string>
+    <string name="session_sheet_media_value">Файлове и връзки</string>
     <string name="session_always_notify">Винаги известявай</string>
     <string name="session_always_notify_message_phone">Известяване на този телефон при всеки готов отговор, дори за съобщения, изпратени от друго устройство.</string>
     <string name="session_always_notify_message_tablet">Известяване на този таблет при всеки готов отговор, дори за съобщения, изпратени от друго устройство.</string>
@@ -199,7 +201,16 @@
         <item quantity="one">%1$d черупка</item>
         <item quantity="other">%1$d черупки</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d скрипт</item>
+        <item quantity="other">%1$d скрипта</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Скриптове</string>
+    <string name="session_background_work_stop_script_label">Спиране на скрипта</string>
+    <string name="session_background_work_stop_subagent_label">Спиране на субагента</string>
+    <string name="session_background_work_stop_script_failed">Неуспешно спиране на скрипта</string>
+    <string name="session_background_work_stop_subagent_failed">Неуспешно спиране на субагента</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Изпрати съобщение</string>
@@ -296,4 +307,26 @@
     <string name="session_shell_stop_failed">Неуспешно спиране на черупката</string>
     <string name="session_quote_remove_description">Премахване на цитата</string>
     <string name="session_quote_comment_placeholder">Добавете коментар по избор…</string>
+    <string name="session_media_title">Медия от сесията</string>
+    <string name="session_media_filter_media">Медия</string>
+    <string name="session_media_filter_files">Файлове</string>
+    <string name="session_media_filter_links">Връзки</string>
+    <string name="session_media_layout_description">Оформление на медията</string>
+    <string name="session_media_layout_tiles">Плочки</string>
+    <string name="session_media_layout_list">Списък</string>
+    <string name="session_media_origin_user">Изпратено от вас</string>
+    <string name="session_media_origin_agent">Споделено от агента</string>
+    <string name="session_media_open_click_label">Отворете</string>
+    <string name="session_media_open_link_click_label">Отваряне на връзката</string>
+    <string name="session_media_empty_media_title">Няма медия</string>
+    <string name="session_media_empty_media_message">Изображенията, видеата и аудиото, споделени в тази сесия, се показват тук.</string>
+    <string name="session_media_empty_files_title">Няма файлове</string>
+    <string name="session_media_empty_files_message">Документите и поставеният текст от тази сесия се показват тук.</string>
+    <string name="session_media_empty_links_title">Няма връзки</string>
+    <string name="session_media_empty_links_message">Уеб връзките, споделени в тази сесия, се показват тук.</string>
+    <string name="session_media_earlier_note">По-ранните съобщения още не са заредени.</string>
+    <string name="session_media_load_earlier">Зареждане на по-ранни съобщения</string>
+    <string name="session_media_loading_earlier">Зареждане…</string>
+    <string name="session_media_earlier_failed">По-ранните съобщения не можаха да бъдат заредени. Проверете връзката си и опитайте отново.</string>
+    <string name="session_media_earlier_nothing_new">В току-що заредените съобщения няма нищо ново. По-ранните може да съдържат още.</string>
 </resources>

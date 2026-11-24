@@ -79,7 +79,31 @@ class AgentImagePreviews(
     private val isLowPowerModeEnabled: () -> Boolean = { false },
     dispatcher: CoroutineDispatcher = Dispatchers.Main,
     private val now: () -> Double = ::agentImageNow,
+    /**
+     * Where a finished read also goes, for the viewer and the next launch: the shared freshness and
+     * the disk copy (`AgentImageCache`). Null keeps reads to this cache.
+     */
+    private val shared: SharedImageStore? = null,
+    /**
+     * A copy of the file this device already holds, answered as a read (live: the viewer's disk
+     * copy, used as is while fresh, otherwise confirmed by a conditional GET). Null reads the server.
+     */
+    private val local: (suspend (AgentImageKey, AgentImageRequest) -> LocalRead?)? = null,
 ) {
+    /** A read answered from this device's copy; [checked]: the server confirmed or replaced it just now. */
+    class LocalRead(val response: AgentImageResponse.File, val checked: Boolean)
+
+    /** Hands a read to the files' shared cache (live: [AgentImageCache] and the viewer's disk copies). */
+    fun interface SharedImageStore {
+        /** [data] is null for a 304: the copy on disk, if any, still holds. */
+        fun read(key: AgentImageKey, data: ByteArray?, validators: AgentImageValidators?)
+    }
+
+    /** Waits for a read of [key] under way, so another reader of the same file doesn't read it again. */
+    suspend fun awaitRead(key: AgentImageKey) {
+        reads[key]?.takeIf { !it.cancelled }?.job?.join()
+    }
+
     enum class Phase {
         /** Not read yet: on screen it waits its turn. */
         Waiting,
@@ -127,6 +151,10 @@ class AgentImagePreviews(
     /** Sightings on screen, counted per marker: only these hold pixels. */
     private val visibleState = mutableStateMapOf<AgentImageSighting, Int>()
     val visible: Map<AgentImageSighting, Int> get() = visibleState
+    /** Sightings on screen whose request may use a constrained network (a foreground screen the person opened). */
+    private val onDemand = HashMap<AgentImageSighting, Int>()
+
+    private fun isOnDemand(key: AgentImageKey): Boolean = onDemand.keys.any { it.key == key }
 
     /**
      * Called before an entry's change reaches any view when it changes the layout (a shape
@@ -549,6 +577,7 @@ class AgentImagePreviews(
     fun show(sighting: AgentImageSighting, request: AgentImageRequest) {
         val key = sighting.key
         visibleState[sighting] = (visibleState[sighting] ?: 0) + 1
+        if (request.allowsConstrainedNetworkAccess) onDemand[sighting] = (onDemand[sighting] ?: 0) + 1
         interest[key] = (interest[key] ?: 0) + 1
         requests[key] = request
         if (entriesState[key] == null) entriesState[key] = entry(key)
@@ -559,7 +588,7 @@ class AgentImagePreviews(
             fresh.removeAll { it.key == key }
             mutate(key) { it.copy(phase = Phase.Waiting, loadedAt = null) }
         }
-        if (isDeferredByNetwork(key)) {
+        if (!isOnDemand(key) && isDeferredByNetwork(key)) {
             recordConstrained(key, setOf(sighting))
             return
         }
@@ -591,6 +620,7 @@ class AgentImagePreviews(
     fun hide(sighting: AgentImageSighting) {
         val key = sighting.key
         visibleState[sighting]?.let { count -> if (count > 1) visibleState[sighting] = count - 1 else visibleState.remove(sighting) }
+        onDemand[sighting]?.let { count -> if (count > 1) onDemand[sighting] = count - 1 else onDemand.remove(sighting) }
         interest[key] = max(0, (interest[key] ?: 0) - 1)
         if (interest[key] != 0) return
         scope.launch {
@@ -649,7 +679,7 @@ class AgentImagePreviews(
         val sent = if (rechecks) validators[key]?.takeIf { !it.isEmpty } else null
         // The pixels a 304 confirms, kept until it answers whatever the cache does.
         val pinnedImage = if (rechecks) image(key) else null
-        val sentRequest = request.copy(allowsConstrainedNetworkAccess = isAllowed(key))
+        val sentRequest = request.copy(allowsConstrainedNetworkAccess = isAllowed(key) || isOnDemand(key))
         val job = scope.launch(start = CoroutineStart.LAZY) {
             read(key, id, sentRequest, sent, pinnedImage, sightings)
         }
@@ -693,10 +723,22 @@ class AgentImagePreviews(
             fresh.addAll(sightings)
         }
         try {
-            val response = loader(request, sent) { size -> scope.launch { sized(key, size, id) } }
+            val held = if (sent == null && local != null) {
+                try {
+                    local.invoke(key, request)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: AgentImageDownload.FailureException) {
+                    throw error
+                } catch (_: Exception) {
+                    null
+                }
+            } else null
+            val response = held?.response ?: loader(request, sent) { size -> scope.launch { sized(key, size, id) } }
             if (!isCurrent(key, id) || !currentCoroutineContext().isActive) return requeue(key, sightings)
             when (response) {
                 AgentImageResponse.NotModified -> {
+                    shared?.read(key, null, null)
                     // Put back what the cache may have let go meanwhile.
                     if (image(key) == null && pinnedImage != null) store(pinnedImage, key)
                     mutate(key) { it.copy(rechecking = false) }
@@ -712,6 +754,7 @@ class AgentImagePreviews(
                         val size = AgentImageHeader.size(response.data, final = true)
                             ?: AgentImageSize(image.width.toDouble(), image.height.toDouble())
                         noteRead(key)
+                        if (held == null || held.checked) shared?.read(key, response.data, response.validators)
                         val previous = entry(key)
                         store(image, key)
                         validators[key] = response.validators
@@ -855,9 +898,54 @@ class AgentImagePreviews(
         override val liveValue: AgentImagePreviews by lazy {
             val context = runCatching { dependency(AppContext) }.getOrNull()
             val power = context?.getSystemService(PowerManager::class.java)
+            val files = dependency(AgentImageCache)
+            val writes = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             AgentImagePreviews(
                 shouldDeferPrefetch = { NetworkPathMonitor.shared?.shouldDeferLargePrefetch == true },
                 isLowPowerModeEnabled = { power?.isPowerSaveMode == true },
+                shared = { key, data, validators ->
+                    val identity = AgentImageCache.key(key)
+                    files.validated(identity)
+                    if (data != null && context != null) {
+                        val cacheDir = context.cacheDir
+                        val name = key.path.substringAfterLast('/')
+                        writes.launch {
+                            runCatching {
+                                val copy = AgentFileLoader.cacheURL(key.server, key.path, name, cacheDir)
+                                files.exclusive(copy.path) {
+                                    val same = copy.isFile && copy.length() == data.size.toLong() && AgentFileLoader.storedValidators(copy) == validators
+                                    if (!same) AgentFileLoader.store(copy, data, validators?.entityTag, validators?.lastModified)
+                                }
+                                files.trim(cacheDir)
+                            }
+                        }
+                    }
+                },
+                local = { key, request ->
+                    withContext(Dispatchers.IO) {
+                        val copy = context?.let { AgentFileLoader.cacheURL(key.server, key.path, key.path.substringAfterLast('/'), it.cacheDir) }
+                            ?.takeIf { it.isFile && it.length() <= MAX_BYTES } ?: return@withContext null
+                        val stored = AgentFileLoader.storedValidators(copy)
+                        if (files.isFresh(AgentImageCache.key(key))) {
+                            return@withContext LocalRead(AgentImageResponse.File(copy.readBytes(), stored ?: AgentImageValidators()), checked = false)
+                        }
+                        val sent = stored?.takeIf { !it.isEmpty } ?: return@withContext null
+                        val answer = try {
+                            AgentImageDownload.load(request, sent, MAX_BYTES) { }
+                        } catch (error: AgentImageDownload.FailureException) {
+                            // Unreachable or refused: the copy stands.
+                            if (error.failure != AgentImageDownload.Failure.Failed && error.failure != AgentImageDownload.Failure.Constrained) throw error
+                            null
+                        } catch (_: java.io.IOException) {
+                            null
+                        }
+                        when (answer) {
+                            null -> LocalRead(AgentImageResponse.File(copy.readBytes(), sent), checked = false)
+                            AgentImageResponse.NotModified -> LocalRead(AgentImageResponse.File(copy.readBytes(), sent), checked = true)
+                            is AgentImageResponse.File -> LocalRead(answer, checked = true)
+                        }
+                    }
+                },
             ).also { previews ->
                 context?.registerComponentCallbacks(object : ComponentCallbacks2 {
                     @Suppress("DEPRECATION")

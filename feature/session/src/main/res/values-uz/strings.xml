@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">Ishlamoqda</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Ishlayotgan subagentlar va shelllarni ko‘rsatish</string>
+    <string name="session_background_work_show_label">Ishlayotgan subagentlar, skriptlar va shelllarni ko‘rsatish</string>
     <string name="session_background_work_collapsed_description">Yig\'ilgan</string>
     <string name="session_background_work_subagents_title">Subagentlar</string>
     <string name="session_background_work_open_subagent_label">Subagent sessiyasini ochish</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Noma\'lum</string>
     <string name="session_sheet_context_tokens">%1$s token</string>
     <string name="session_sheet_cost">Xarajat</string>
+    <string name="session_sheet_media">Media</string>
+    <string name="session_sheet_media_value">Fayllar va havolalar</string>
     <string name="session_always_notify">Doim bildirish</string>
     <string name="session_always_notify_message_phone">Har bir javob tayyor bo‘lganda, hatto so‘rov bu yerdan yuborilmagan bo‘lsa ham, bu telefonga bildirishnoma yuborilsin.</string>
     <string name="session_always_notify_message_tablet">Har bir javob tayyor bo‘lganda, hatto so‘rov bu yerdan yuborilmagan bo‘lsa ham, bu planshetga bildirishnoma yuborilsin.</string>
@@ -199,7 +201,16 @@
         <item quantity="one">%1$d ta shell</item>
         <item quantity="other">%1$d ta shell</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d ta skript</item>
+        <item quantity="other">%1$d ta skript</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Skriptlar</string>
+    <string name="session_background_work_stop_script_label">Skriptni to‘xtatish</string>
+    <string name="session_background_work_stop_subagent_label">Subagentni to‘xtatish</string>
+    <string name="session_background_work_stop_script_failed">Skriptni to‘xtatib bo‘lmadi</string>
+    <string name="session_background_work_stop_subagent_failed">Subagentni to‘xtatib bo‘lmadi</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Xabar yuborish</string>
@@ -296,4 +307,26 @@
     <string name="session_shell_stop_failed">Shellni to‘xtatib bo‘lmadi</string>
     <string name="session_quote_remove_description">Iqtibosni olib tashlash</string>
     <string name="session_quote_comment_placeholder">Izoh qo\'shing (ixtiyoriy)…</string>
+    <string name="session_media_title">Sessiya mediasi</string>
+    <string name="session_media_filter_media">Media</string>
+    <string name="session_media_filter_files">Fayllar</string>
+    <string name="session_media_filter_links">Havolalar</string>
+    <string name="session_media_layout_description">Media joylashuvi</string>
+    <string name="session_media_layout_tiles">Plitkalar</string>
+    <string name="session_media_layout_list">Roʻyxat</string>
+    <string name="session_media_origin_user">Siz yuborgansiz</string>
+    <string name="session_media_origin_agent">Agent ulashgan</string>
+    <string name="session_media_open_click_label">Ochish</string>
+    <string name="session_media_open_link_click_label">Havolani ochish</string>
+    <string name="session_media_empty_media_title">Media yo‘q</string>
+    <string name="session_media_empty_media_message">Bu sessiyada ulashilgan rasmlar, videolar va audiolar shu yerda ko‘rinadi.</string>
+    <string name="session_media_empty_files_title">Fayllar yo‘q</string>
+    <string name="session_media_empty_files_message">Bu sessiyadagi hujjatlar va joylangan matnlar shu yerda ko‘rinadi.</string>
+    <string name="session_media_empty_links_title">Havolalar yo‘q</string>
+    <string name="session_media_empty_links_message">Bu sessiyada ulashilgan veb-havolalar shu yerda ko‘rinadi.</string>
+    <string name="session_media_earlier_note">Oldingi xabarlar hali yuklanmagan.</string>
+    <string name="session_media_load_earlier">Oldingi xabarlarni yuklash</string>
+    <string name="session_media_loading_earlier">Yuklanmoqda…</string>
+    <string name="session_media_earlier_failed">Oldingi xabarlarni yuklab bo‘lmadi. Ulanishni tekshirib, qayta urinib ko‘ring.</string>
+    <string name="session_media_earlier_nothing_new">Hozir yuklangan xabarlarda yangilik yo‘q. Oldingilarida bo‘lishi mumkin.</string>
 </resources>

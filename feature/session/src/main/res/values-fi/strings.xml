@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">Käynnissä</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Näytä käynnissä olevat aliagentit ja komentotulkit</string>
+    <string name="session_background_work_show_label">Näytä käynnissä olevat aliagentit, skriptit ja komentotulkit</string>
     <string name="session_background_work_collapsed_description">Kutistettu</string>
     <string name="session_background_work_subagents_title">Aliagentit</string>
     <string name="session_background_work_open_subagent_label">Avaa aliagentin istunto</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Tuntematon</string>
     <string name="session_sheet_context_tokens">%1$s tokenia</string>
     <string name="session_sheet_cost">Kustannus</string>
+    <string name="session_sheet_media">Media</string>
+    <string name="session_sheet_media_value">Tiedostot ja linkit</string>
     <string name="session_always_notify">Ilmoita aina</string>
     <string name="session_always_notify_message_phone">Ilmoita tähän puhelimeen aina, kun vastaus valmistuu, myös muualla lähetettyihin viesteihin.</string>
     <string name="session_always_notify_message_tablet">Ilmoita tähän tablettiin aina, kun vastaus valmistuu, myös muualla lähetettyihin viesteihin.</string>
@@ -199,7 +201,16 @@
         <item quantity="one">%1$d komentotulkki</item>
         <item quantity="other">%1$d komentotulkkia</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d skripti</item>
+        <item quantity="other">%1$d skriptiä</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Skriptit</string>
+    <string name="session_background_work_stop_script_label">Pysäytä skripti</string>
+    <string name="session_background_work_stop_subagent_label">Pysäytä aliagentti</string>
+    <string name="session_background_work_stop_script_failed">Skriptin pysäyttäminen epäonnistui</string>
+    <string name="session_background_work_stop_subagent_failed">Aliagentin pysäyttäminen epäonnistui</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Lähetä viesti</string>
@@ -296,4 +307,26 @@
     <string name="session_shell_stop_failed">Komentotulkin pysäyttäminen epäonnistui</string>
     <string name="session_quote_remove_description">Poista lainaus</string>
     <string name="session_quote_comment_placeholder">Lisää halutessasi kommentti…</string>
+    <string name="session_media_title">Istunnon media</string>
+    <string name="session_media_filter_media">Media</string>
+    <string name="session_media_filter_files">Tiedostot</string>
+    <string name="session_media_filter_links">Linkit</string>
+    <string name="session_media_layout_description">Median asettelu</string>
+    <string name="session_media_layout_tiles">Ruudukko</string>
+    <string name="session_media_layout_list">Luettelo</string>
+    <string name="session_media_origin_user">Lähetit tämän</string>
+    <string name="session_media_origin_agent">Agentin jakama</string>
+    <string name="session_media_open_click_label">Avaa</string>
+    <string name="session_media_open_link_click_label">Avaa linkki</string>
+    <string name="session_media_empty_media_title">Ei mediaa</string>
+    <string name="session_media_empty_media_message">Tässä istunnossa jaetut kuvat, videot ja äänet näkyvät täällä.</string>
+    <string name="session_media_empty_files_title">Ei tiedostoja</string>
+    <string name="session_media_empty_files_message">Tämän istunnon asiakirjat ja liitetty teksti näkyvät täällä.</string>
+    <string name="session_media_empty_links_title">Ei linkkejä</string>
+    <string name="session_media_empty_links_message">Tässä istunnossa jaetut verkkolinkit näkyvät täällä.</string>
+    <string name="session_media_earlier_note">Aiempia viestejä ei ole vielä ladattu.</string>
+    <string name="session_media_load_earlier">Lataa aiemmat viestit</string>
+    <string name="session_media_loading_earlier">Ladataan…</string>
+    <string name="session_media_earlier_failed">Aiempien viestien lataus epäonnistui. Tarkista yhteytesi ja yritä uudelleen.</string>
+    <string name="session_media_earlier_nothing_new">Juuri ladatuissa viesteissä ei ole mitään uutta. Aiemmissa voi olla lisää.</string>
 </resources>

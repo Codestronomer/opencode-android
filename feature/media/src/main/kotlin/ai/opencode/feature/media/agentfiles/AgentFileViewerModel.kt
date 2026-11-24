@@ -53,7 +53,19 @@ class AgentFileViewerModel(
     private val playbackAudio: MediaPlaybackAudio = dependency(MediaPlaybackAudio),
     private val context: Context = dependency(AppContext),
     private val fileChecks: AgentFileChecks = dependency(AgentFileChecks),
+    /** Full-resolution pixels already on screen for this file: kept when the file is unchanged. */
+    private val seed: Bitmap? = null,
+    private val images: AgentImageCache = dependency(AgentImageCache),
+    private val previews: AgentImagePreviews = dependency(AgentImagePreviews),
 ) {
+    /** The file's one identity across the transcript and the viewer. */
+    private val identity: String? = if (reference.kind == AgentFileReference.Kind.Image) AgentImageCache.key(server, reference, directory) else null
+
+    /** Full-resolution pixels some reader already holds for this file: the page's, the decoded cache's, the preview's. */
+    private fun resident(identity: String): Bitmap? = seed ?: images.image(identity) ?: if (reference.media == null) {
+        target?.let { AgentImageCache.fullResolutionPreview(previews, AgentImageKey(server.persistenceID, it.absolutePath)) }
+    } else null
+
     sealed interface Content {
         class Player(val player: ExoPlayer, val isAudio: Boolean, val isStreaming: Boolean) : Content
 
@@ -88,8 +100,16 @@ class AgentFileViewerModel(
     /** A streamed file downloading for Share. */
     data class ShareProgress(val received: Long, val expected: Long?)
 
-    var phase: Phase by mutableStateOf(Phase.Opening)
-        private set
+    private var current: Phase by mutableStateOf(Phase.Opening)
+
+    /** Owns the PDF it shows: replacing it closes the one no longer shown. */
+    var phase: Phase
+        get() = current
+        private set(value) {
+            val old = ((current as? Phase.Ready)?.content as? Content.QuickLook)?.pdf
+            current = value
+            if (old != null && old !== ((value as? Phase.Ready)?.content as? Content.QuickLook)?.pdf) old.close()
+        }
 
     var shareProgress: ShareProgress? by mutableStateOf(null)
         private set
@@ -99,6 +119,8 @@ class AgentFileViewerModel(
     private var probe: AgentFileProbe? = null
     private var work: Job? = null
     private var audioHolder: AudioHolder? = null
+    /** A downloaded copy is on screen and the server hasn't answered for it yet. */
+    private var copyUnchecked = false
 
     /** One activation; `holder` is set once activation succeeded off the main thread. */
     private class AudioHolder {
@@ -127,8 +149,24 @@ class AgentFileViewerModel(
             return parent
         }
 
+    /**
+     * Ready at once, before any frame, when some reader holds this file's pixels: the page's first
+     * frame shows them rather than Opening. A file that isn't fresh is checked behind them ([open]).
+     * Main thread.
+     */
+    fun openResident(): Boolean {
+        val identity = identity ?: return false
+        val image = resident(identity) ?: return false
+        val destination = original?.let { AgentFileLoader.cacheURL(server, it.cacheKey, reference.name, context.cacheDir) }
+        phase = Phase.Ready(Content.Image(image), destination?.takeIf { it.isFile })
+        return true
+    }
+
     fun open() {
-        (phase as? Phase.Ready)?.let { if (it.localFile != null) return }
+        if (identity != null && (phase as? Phase.Ready)?.content is Content.Image && images.isFresh(identity)) return
+        (phase as? Phase.Ready)?.let {
+            if (it.localFile != null && !copyUnchecked && (identity == null || it.content !is Content.Image)) return
+        }
         work?.cancel()
         work = scope.launch { run(confirmed = false) }
     }
@@ -166,36 +204,80 @@ class AgentFileViewerModel(
             phase = Phase.Failed(AgentFileError.Unreadable)
             return
         }
+        // A copy already on screen while the server is asked: a check never blanks it.
+        var shown: Phase.Ready? = null
         try {
-            if (!confirmed || probe == null) {
-                phase = Phase.Opening
-                probe = AgentFileLoader.probe(original.request, server)
-            }
-            val probe = probe ?: return
-            if (!scope.isActive) return
-            if (reference.kind.isTimeBased && probe.supportsRanges) {
-                startStreaming(original.request, reference.media?.mime ?: probe.mime)
-                return
-            }
-            val size = downloadSize(probe)
-            if (!confirmed && size != null && size > AgentFileLoader.confirmationBytes) {
-                phase = Phase.ConfirmLarge(size)
-                return
-            }
-            phase = Phase.Downloading(0, size)
+            val identity = identity
             val destination = AgentFileLoader.cacheURL(server, original.cacheKey, reference.name, context.cacheDir)
-            val limit = if (confirmed) maxOf(size ?: 0, AgentFileLoader.confirmationBytes) else AgentFileLoader.confirmationBytes
-            val file = AgentFileLoader.download(original.request, destination, server, maxBytes = limit) { received, expected ->
-                scope.launch { downloaded(received, expected) }
+            if (identity != null && !confirmed) {
+                // A preview of the same file under way lands first: its bytes and its check are this read's.
+                if (reference.media == null) target?.let { previews.awaitRead(AgentImageKey(server.persistenceID, it.absolutePath)) }
+                val fresh = images.isFresh(identity)
+                val resident = resident(identity)
+                val image = resident ?: if (destination.isFile) images.decodeFile(identity, destination) else null
+                if (image != null) {
+                    shown = Phase.Ready(Content.Image(image), destination.takeIf { it.isFile })
+                    phase = shown
+                    if (fresh) return
+                }
             }
-            present(file)
+            if (shown == null && !confirmed && !reference.kind.isTimeBased && reference.media == null && destination.isFile) {
+                if ((phase as? Phase.Ready)?.localFile != destination) present(destination)
+                shown = phase as? Phase.Ready
+                copyUnchecked = shown != null
+            }
+            // A copy on screen is checked by the conditional GET alone.
+            val size = if (shown != null) null else {
+                if (!confirmed || probe == null) {
+                    if (shown == null) phase = Phase.Opening
+                    probe = AgentFileLoader.probe(original.request, server)
+                }
+                val probe = probe ?: return
+                if (!scope.isActive) return
+                if (reference.kind.isTimeBased && probe.supportsRanges) {
+                    startStreaming(original.request, reference.media?.mime ?: probe.mime)
+                    return
+                }
+                val size = downloadSize(probe)
+                if (!confirmed && size != null && size > AgentFileLoader.confirmationBytes) {
+                    if (shown == null) phase = Phase.ConfirmLarge(size)
+                    return
+                }
+                size
+            }
+            if (shown == null) phase = Phase.Downloading(0, size)
+            val limit = maxOf(if (confirmed) size ?: 0 else 0, if (shown != null) destination.length() else 0, AgentFileLoader.confirmationBytes)
+            var status = 0
+            // One download per destination at a time: a second reader finds the first's copy fresh.
+            val file = images.exclusive(destination.path) {
+                if (identity != null && destination.isFile && images.isFresh(identity)) {
+                    status = 304
+                    destination
+                } else {
+                    AgentFileLoader.download(original.request, destination, server, maxBytes = limit, onStatus = { status = it }) { received, expected ->
+                        scope.launch { downloaded(received, expected) }
+                    }
+                }
+            }
+            copyUnchecked = false
+            if (identity != null) {
+                images.validated(identity)
+                // Unchanged (304): the pixels already resident stay; changed (200): decoded once, for every reader.
+                val resident = if (status == 304) (shown?.content as? Content.Image)?.image ?: resident(identity) else null
+                val image = resident ?: images.decodeFile(identity, file, replacing = status != 304)
+                phase = Phase.Ready(image?.let(Content::Image) ?: quickLook(file), file)
+            } else if (shown == null || status != 304) {
+                present(file)
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: AgentFileError) {
             if (error == AgentFileError.NotFound) target?.let { fileChecks.markMissing(server, it.absolutePath) }
+            if (shown != null && error != AgentFileError.NotFound) return
             phase = Phase.Failed(error)
         } catch (error: Exception) {
             AppLog.network.notice { "Agent file: ${error::class.java.simpleName}" }
+            if (shown != null) return
             phase = Phase.Failed(AgentFileError.network(error))
         }
     }
@@ -330,7 +412,13 @@ class AgentFileViewerModel(
     }
 
     companion object {
-        private suspend fun loadImage(file: File): Bitmap? = withContext(Dispatchers.IO) {
+        /** The disk copy of [file] the viewer downloaded or a preview stored, if there is one. Off the main thread. */
+        internal fun diskCopy(file: AgentFileDestination, server: OpenCodeServer, cacheDirectory: File = dependency(AppContext).cacheDir): File? {
+            val original = AgentFileLoader.original(server, file.reference, file.directory) ?: return null
+            return AgentFileLoader.cacheURL(server, original.cacheKey, file.reference.name, cacheDirectory).takeIf { it.isFile }
+        }
+
+        internal suspend fun loadImage(file: File): Bitmap? = withContext(Dispatchers.IO) {
             runCatching {
                 ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
                     // Android won't draw a bitmap over ~100 MB; keep the original otherwise.
@@ -413,7 +501,17 @@ class AgentPdfDocument private constructor(
 
     companion object {
         /** Null when it isn't a PDF this device can render. */
-        suspend fun open(file: File): AgentPdfDocument? = withContext(Dispatchers.IO) {
+        suspend fun open(file: File): AgentPdfDocument? {
+            var document: AgentPdfDocument? = null
+            try {
+                return withContext(Dispatchers.IO) { openPages(file).also { document = it } }
+            } catch (error: CancellationException) {
+                document?.close()
+                throw error
+            }
+        }
+
+        private fun openPages(file: File): AgentPdfDocument? =
             runCatching {
                 val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                 try {
@@ -427,7 +525,6 @@ class AgentPdfDocument private constructor(
                     throw error
                 }
             }.getOrNull()
-        }
     }
 }
 

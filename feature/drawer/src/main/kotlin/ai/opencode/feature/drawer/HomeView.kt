@@ -220,8 +220,7 @@ private fun HomeLayout(
         CatchUpStage(
             queue = stack.queue,
             undoDirection = stack.handled.lastOrNull()?.disposition,
-            onDismiss = { disposition ->
-                val sessionID = store.state.catchUp?.queue?.firstOrNull() ?: return@CatchUpStage
+            onDismiss = { sessionID, disposition ->
                 store.send(HomeFeature.Action.catchUpCardDismissed(sessionID, disposition))
             },
             onUndo = { store.send(HomeFeature.Action.catchUpUndoTapped) },
@@ -257,7 +256,11 @@ private fun HomeLayout(
         isContentPushed = pushed,
         isSheetPresented = settingsShown || sheetPresented,
         content = {
-            HomeSessionStack(store, view, usesSidebar, containerWidth)
+            HomeSessionStack(store, view, usesSidebar, containerWidth, onCatchUpOpen = {
+                controller.captureCardThen {
+                    if (store.state.catchUp != null) store.send(HomeFeature.Action.catchUpOpenTapped)
+                }
+            })
         },
         // The drawer's panel; Home hosts the delete confirmation. The drawer's selection reaches
         // the rows' checks, which wave out from the held row.
@@ -381,6 +384,7 @@ private fun HomeSessionStack(
     view: HomeViewState,
     usesSidebar: Boolean,
     containerWidth: Dp,
+    onCatchUpOpen: () -> Unit,
 ) {
     val root = rememberRootStore(store)
     val call = rememberHomeCall(store)
@@ -420,7 +424,7 @@ private fun HomeSessionStack(
                 root,
                 navigationIcon = { HomeDrawerButton(store, view, usesSidebar, containerWidth) },
                 listContext = listContext,
-                onCatchUpOpen = if (catchingUp) ({ store.send(HomeFeature.Action.catchUpOpenTapped) }) else null,
+                onCatchUpOpen = if (catchingUp) onCatchUpOpen else null,
                 onConnectionAction = { action -> store.send(serverConnectionAction(action, store.state.server)) },
             )
         },

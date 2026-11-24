@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">Vykdoma</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Rodyti veikiančius subagentus ir apvalkalus</string>
+    <string name="session_background_work_show_label">Rodyti veikiančius subagentus, scenarijus ir apvalkalus</string>
     <string name="session_background_work_collapsed_description">Sutraukta</string>
     <string name="session_background_work_subagents_title">Subagentai</string>
     <string name="session_background_work_open_subagent_label">Atidaryti subagento seansą</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Nežinomas</string>
     <string name="session_sheet_context_tokens">%1$s žetonų</string>
     <string name="session_sheet_cost">Kaina</string>
+    <string name="session_sheet_media">Medija</string>
+    <string name="session_sheet_media_value">Failai ir nuorodos</string>
     <string name="session_always_notify">Visada pranešti</string>
     <string name="session_always_notify_message_phone">Pranešti šiame telefone, kai atsakymas paruoštas, net jei užklausa siųsta ne iš čia.</string>
     <string name="session_always_notify_message_tablet">Pranešti šioje planšetėje, kai atsakymas paruoštas, net jei užklausa siųsta ne iš čia.</string>
@@ -213,7 +215,18 @@
         <item quantity="many">%1$d apvalkalo</item>
         <item quantity="other">%1$d apvalkalų</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d scenarijus</item>
+        <item quantity="few">%1$d scenarijai</item>
+        <item quantity="many">%1$d scenarijaus</item>
+        <item quantity="other">%1$d scenarijų</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Scenarijai</string>
+    <string name="session_background_work_stop_script_label">Stabdyti scenarijų</string>
+    <string name="session_background_work_stop_subagent_label">Stabdyti subagentą</string>
+    <string name="session_background_work_stop_script_failed">Nepavyko sustabdyti scenarijaus</string>
+    <string name="session_background_work_stop_subagent_failed">Nepavyko sustabdyti subagento</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Siųsti žinutę</string>
@@ -318,4 +331,26 @@
     <string name="session_shell_stop_failed">Nepavyko sustabdyti apvalkalo</string>
     <string name="session_quote_remove_description">Pašalinti citatą</string>
     <string name="session_quote_comment_placeholder">Pridėkite komentarą (neprivaloma)…</string>
+    <string name="session_media_title">Seanso medija</string>
+    <string name="session_media_filter_media">Medija</string>
+    <string name="session_media_filter_files">Failai</string>
+    <string name="session_media_filter_links">Nuorodos</string>
+    <string name="session_media_layout_description">Medijos išdėstymas</string>
+    <string name="session_media_layout_tiles">Plytelės</string>
+    <string name="session_media_layout_list">Sąrašas</string>
+    <string name="session_media_origin_user">Išsiuntėte jūs</string>
+    <string name="session_media_origin_agent">Bendrino agentas</string>
+    <string name="session_media_open_click_label">Atidaryti</string>
+    <string name="session_media_open_link_click_label">Atverti nuorodą</string>
+    <string name="session_media_empty_media_title">Medijos nėra</string>
+    <string name="session_media_empty_media_message">Čia rodomi šiame seanse bendrinti vaizdai, vaizdo įrašai ir garso failai.</string>
+    <string name="session_media_empty_files_title">Failų nėra</string>
+    <string name="session_media_empty_files_message">Čia rodomi šio seanso dokumentai ir įklijuotas tekstas.</string>
+    <string name="session_media_empty_links_title">Nuorodų nėra</string>
+    <string name="session_media_empty_links_message">Čia rodomos šiame seanse bendrinamos interneto nuorodos.</string>
+    <string name="session_media_earlier_note">Ankstesnės žinutės dar neįkeltos.</string>
+    <string name="session_media_load_earlier">Įkelti ankstesnes žinutes</string>
+    <string name="session_media_loading_earlier">Įkeliama…</string>
+    <string name="session_media_earlier_failed">Nepavyko įkelti ankstesnių žinučių. Patikrinkite ryšį ir bandykite dar kartą.</string>
+    <string name="session_media_earlier_nothing_new">Ką tik įkeltose žinutėse nieko naujo. Ankstesnėse gali būti daugiau.</string>
 </resources>

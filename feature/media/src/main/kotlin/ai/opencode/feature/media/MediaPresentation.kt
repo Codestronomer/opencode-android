@@ -177,6 +177,8 @@ class MediaZoomSources internal constructor() {
         internal var density: Float = 1f
         /** It draws the media itself (a thumbnail), so the viewer lands on it without a fade; a card only stands in for it. */
         internal var showsMedia: Boolean = false
+        /** It covers the screen's other views of the same media, so flights start and land on it. */
+        internal var isPreferred: Boolean = false
 
         /** Its exact frame in the window, unclipped. */
         val windowRect: Rect?
@@ -231,7 +233,7 @@ class MediaZoomSources internal constructor() {
     /** The on-screen view showing [id], preferring one that shows it over one standing in for it. */
     fun view(id: String?): Source? {
         if (id == null) return null
-        val candidates = sources.filter { it.mediaIDs.contains(id) && it.isOnScreen }
+        val candidates = sources.filter { it.mediaIDs.contains(id) && it.isOnScreen }.sortedByDescending { it.isPreferred }
         return candidates.firstOrNull { it.mediaIDs.firstOrNull() == id } ?: candidates.firstOrNull()
     }
 
@@ -246,14 +248,16 @@ private class MediaZoomSourceElement(
     val cornerRadius: Dp,
     val corners: MediaCorners,
     val showsMedia: Boolean,
+    val isPreferred: Boolean = false,
 ) : ModifierNodeElement<MediaZoomSourceNode>() {
-    override fun create() = MediaZoomSourceNode(ids, cornerRadius, corners, showsMedia)
+    override fun create() = MediaZoomSourceNode(ids, cornerRadius, corners, showsMedia).also { it.source.isPreferred = isPreferred }
 
     override fun update(node: MediaZoomSourceNode) {
         node.source.mediaIDs = ids
         node.source.cornerRadius = cornerRadius
         node.source.corners = corners
         node.source.showsMedia = showsMedia
+        node.source.isPreferred = isPreferred
     }
 
     override fun InspectorInfo.inspectableProperties() {
@@ -263,9 +267,10 @@ private class MediaZoomSourceElement(
 
     override fun equals(other: Any?) =
         other is MediaZoomSourceElement && other.ids == ids && other.cornerRadius == cornerRadius && other.corners == corners &&
-            other.showsMedia == showsMedia
+            other.showsMedia == showsMedia && other.isPreferred == isPreferred
 
-    override fun hashCode() = ((ids.hashCode() * 31 + cornerRadius.hashCode()) * 31 + corners.hashCode()) * 31 + showsMedia.hashCode()
+    override fun hashCode() =
+        (((ids.hashCode() * 31 + cornerRadius.hashCode()) * 31 + corners.hashCode()) * 31 + showsMedia.hashCode()) * 31 + isPreferred.hashCode()
 }
 
 private class MediaZoomSourceNode(
@@ -299,10 +304,11 @@ private class MediaZoomSourceNode(
 /**
  * Marks a card or row that opens full-screen media, so the viewer zooms out of it and back into it.
  * Only its frame and shape are used. [showsMedia]: it draws the media itself (cropped to fill), so
- * the media lands on it without fading.
+ * the media lands on it without fading. [preferred]: a page over the transcript, whose views of the
+ * same media it covers.
  */
-fun Modifier.mediaZoomSource(id: String, cornerRadius: Dp = 0.dp, showsMedia: Boolean = false): Modifier =
-    this then MediaZoomSourceElement(listOf(id), cornerRadius, MediaCorners.All, showsMedia)
+fun Modifier.mediaZoomSource(id: String, cornerRadius: Dp = 0.dp, showsMedia: Boolean = false, preferred: Boolean = false): Modifier =
+    this then MediaZoomSourceElement(listOf(id), cornerRadius, MediaCorners.All, showsMedia, preferred)
 
 /**
  * An image the full-screen viewer zooms out of and back into, so the flight can start and land on
@@ -421,6 +427,9 @@ class MediaViewerState(sourceID: String?) {
 
     val mediaFrame: Rect? get() = sourceID?.let { mediaFrames[it] }
 
+    /** Where each image page draws its image in the window, fitted or zoomed, by media ID. */
+    val pageFrames: MutableMap<String, Rect> = HashMap()
+
     /** The badges drawn on each source's corners, by media ID, carried by the flight. */
     var flightAccessories: (String) -> List<MediaFlightAccessory> = { emptyList() }
         internal set
@@ -445,8 +454,10 @@ class MediaViewerState(sourceID: String?) {
         this.sourceID = sourceID
         this.image = image
         this.isVideo = isVideo
-        isZoomed = false
-        if (moved) onShow()
+        if (moved) {
+            isZoomed = false
+            onShow()
+        }
     }
 
     /** A video page's first frame is up ([id]), or gone (null). */
@@ -542,7 +553,7 @@ class MediaPresenter internal constructor() {
         if (isPresenting) return
         val file = preview.pages.firstOrNull { it.id == preview.id }?.file
         val store = Store(
-            FullscreenViewerFeature.State(preview, allowsDrawing = addDrawing != null),
+            FullscreenViewerFeature.State(preview.withSelectedStandIn(), allowsDrawing = addDrawing != null),
             FullscreenViewerFeature(addDrawing),
         )
         present(preview.id, file?.reference?.kind?.isMedia ?: true, reducesMotion, flightAccessories = flightAccessories, onDismiss = store::close) { viewer ->

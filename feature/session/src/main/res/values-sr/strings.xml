@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">У току</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Прикажи активне субагенте и shell-ове</string>
+    <string name="session_background_work_show_label">Прикажи активне субагенте, скрипте и shell-ове</string>
     <string name="session_background_work_collapsed_description">Скупљено</string>
     <string name="session_background_work_subagents_title">Субагенти</string>
     <string name="session_background_work_open_subagent_label">Отвори сесију субагента</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Непознат</string>
     <string name="session_sheet_context_tokens">%1$s токена</string>
     <string name="session_sheet_cost">Трошак</string>
+    <string name="session_sheet_media">Медији</string>
+    <string name="session_sheet_media_value">Датотеке и везе</string>
     <string name="session_always_notify">Увек обавести</string>
     <string name="session_always_notify_message_phone">Обавести овај телефон кад год је одговор спреман, чак и ако порука није послата одавде.</string>
     <string name="session_always_notify_message_tablet">Обавести овај таблет кад год је одговор спреман, чак и ако порука није послата одавде.</string>
@@ -206,7 +208,17 @@
         <item quantity="few">%1$d shell-а</item>
         <item quantity="other">%1$d shell-ова</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d скрипта</item>
+        <item quantity="few">%1$d скрипте</item>
+        <item quantity="other">%1$d скрипти</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Скрипте</string>
+    <string name="session_background_work_stop_script_label">Заустави скрипту</string>
+    <string name="session_background_work_stop_subagent_label">Заустави субагента</string>
+    <string name="session_background_work_stop_script_failed">Заустављање скрипте није успело</string>
+    <string name="session_background_work_stop_subagent_failed">Заустављање субагента није успело</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Пошаљи поруку</string>
@@ -307,4 +319,26 @@
     <string name="session_shell_stop_failed">Заустављање shell-а није успело</string>
     <string name="session_quote_remove_description">Уклони цитат</string>
     <string name="session_quote_comment_placeholder">Додај коментар (опционо)…</string>
+    <string name="session_media_title">Медији сесије</string>
+    <string name="session_media_filter_media">Медији</string>
+    <string name="session_media_filter_files">Датотеке</string>
+    <string name="session_media_filter_links">Везе</string>
+    <string name="session_media_layout_description">Распоред медија</string>
+    <string name="session_media_layout_tiles">Плочице</string>
+    <string name="session_media_layout_list">Листа</string>
+    <string name="session_media_origin_user">Послали сте ви</string>
+    <string name="session_media_origin_agent">Поделио агент</string>
+    <string name="session_media_open_click_label">Отвори</string>
+    <string name="session_media_open_link_click_label">Отвори везу</string>
+    <string name="session_media_empty_media_title">Нема медија</string>
+    <string name="session_media_empty_media_message">Слике, видео и аудио снимци подељени у овој сесији појављују се овде.</string>
+    <string name="session_media_empty_files_title">Нема датотека</string>
+    <string name="session_media_empty_files_message">Документи и налепљени текст из ове сесије појављују се овде.</string>
+    <string name="session_media_empty_links_title">Нема веза</string>
+    <string name="session_media_empty_links_message">Веб везе подељене у овој сесији приказаће се овде.</string>
+    <string name="session_media_earlier_note">Раније поруке још нису учитане.</string>
+    <string name="session_media_load_earlier">Учитај раније поруке</string>
+    <string name="session_media_loading_earlier">Учитавање…</string>
+    <string name="session_media_earlier_failed">Учитавање ранијих порука није успело. Проверите везу и покушајте поново.</string>
+    <string name="session_media_earlier_nothing_new">У управо учитаним порукама нема ничег новог. Раније можда имају више.</string>
 </resources>

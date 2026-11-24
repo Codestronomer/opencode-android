@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">လုပ်ဆောင်နေသည်</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">လုပ်ဆောင်နေသည့် အေးဂျင့်ခွဲများနှင့် shell များကို ပြပါ</string>
+    <string name="session_background_work_show_label">လုပ်ဆောင်နေသည့် အေးဂျင့်ခွဲများ၊ script များနှင့် shell များကို ပြပါ</string>
     <string name="session_background_work_collapsed_description">ခေါက်သိမ်းထားသည်</string>
     <string name="session_background_work_subagents_title">အေးဂျင့်ခွဲများ</string>
     <string name="session_background_work_open_subagent_label">အေးဂျင့်ခွဲ၏ စက်ရှင်ကို ဖွင့်ပါ</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">အမည်မသိ</string>
     <string name="session_sheet_context_tokens">တိုကင် %1$s</string>
     <string name="session_sheet_cost">ကုန်ကျစရိတ်</string>
+    <string name="session_sheet_media">မီဒီယာ</string>
+    <string name="session_sheet_media_value">ဖိုင်များနှင့် လင့်ခ်များ</string>
     <string name="session_always_notify">အမြဲအသိပေးပါ</string>
     <string name="session_always_notify_message_phone">ဤဖုန်းမှ မပို့ထားသည့် မက်ဆေ့ဂျ်များအတွက်ပါ ပြန်စာပြီးတိုင်း ဤဖုန်းကို အသိပေးပါ။</string>
     <string name="session_always_notify_message_tablet">ဤတက်ဘလက်မှ မပို့ထားသည့် မက်ဆေ့ဂျ်များအတွက်ပါ ပြန်စာပြီးတိုင်း ဤတက်ဘလက်ကို အသိပေးပါ။</string>
@@ -192,7 +194,15 @@
     <plurals name="session_background_work_shell_count">
         <item quantity="other">shell %1$d ခု</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="other">script %1$d ခု</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">script များ</string>
+    <string name="session_background_work_stop_script_label">script ကို ရပ်ပါ</string>
+    <string name="session_background_work_stop_subagent_label">အေးဂျင့်ခွဲကို ရပ်ပါ</string>
+    <string name="session_background_work_stop_script_failed">script ကို မရပ်နိုင်ပါ</string>
+    <string name="session_background_work_stop_subagent_failed">အေးဂျင့်ခွဲကို မရပ်နိုင်ပါ</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">မက်ဆေ့ဂျ် ပို့ပါ</string>
@@ -285,4 +295,26 @@
     <string name="session_shell_stop_failed">ဘူးခွံကို မရပ်နိုင်ပါ</string>
     <string name="session_quote_remove_description">ကိုးကားချက်ကို ဖယ်ရှားပါ</string>
     <string name="session_quote_comment_placeholder">မှတ်ချက် ထည့်နိုင်သည်…</string>
+    <string name="session_media_title">စက်ရှင် မီဒီယာ</string>
+    <string name="session_media_filter_media">မီဒီယာ</string>
+    <string name="session_media_filter_files">ဖိုင်များ</string>
+    <string name="session_media_filter_links">လင့်ခ်များ</string>
+    <string name="session_media_layout_description">မီဒီယာ အပြင်အဆင်</string>
+    <string name="session_media_layout_tiles">အမြန်ခလုတ်များ</string>
+    <string name="session_media_layout_list">စာရင်း</string>
+    <string name="session_media_origin_user">သင် ပို့ထားသည်</string>
+    <string name="session_media_origin_agent">အေးဂျင့် မျှဝေထားသည်</string>
+    <string name="session_media_open_click_label">ဖွင့်ပါ</string>
+    <string name="session_media_open_link_click_label">လင့်ခ်ဖွင့်ရန်</string>
+    <string name="session_media_empty_media_title">မီဒီယာ မရှိပါ</string>
+    <string name="session_media_empty_media_message">ဤစက်ရှင်တွင် မျှဝေထားသော ပုံများ၊ ဗီဒီယိုများနှင့် အသံများကို ဤနေရာတွင် တွေ့ရပါမည်။</string>
+    <string name="session_media_empty_files_title">ဖိုင် မရှိပါ</string>
+    <string name="session_media_empty_files_message">ဤစက်ရှင်မှ စာရွက်စာတမ်းများနှင့် ကူးထည့်ထားသော စာသားများကို ဤနေရာတွင် တွေ့ရပါမည်။</string>
+    <string name="session_media_empty_links_title">လင့်ခ် မရှိပါ</string>
+    <string name="session_media_empty_links_message">ဤစက်ရှင်တွင် မျှဝေထားသော ဝဘ်လင့်ခ်များ ဤနေရာတွင် ပေါ်လာပါမည်။</string>
+    <string name="session_media_earlier_note">အစောပိုင်း မက်ဆေ့ဂျ်များကို မတင်ရသေးပါ။</string>
+    <string name="session_media_load_earlier">အစောပိုင်း မက်ဆေ့ဂျ်များကို ဖွင့်ပါ</string>
+    <string name="session_media_loading_earlier">တင်နေသည်…</string>
+    <string name="session_media_earlier_failed">အစောပိုင်း မက်ဆေ့ဂျ်များကို မဖွင့်နိုင်ပါ။ သင့်ချိတ်ဆက်မှုကို စစ်ပြီး ပြန်ကြိုးစားပါ။</string>
+    <string name="session_media_earlier_nothing_new">ယခုလေးတင် ဖွင့်ထားသော မက်ဆေ့ဂျ်များတွင် အသစ်ဘာမှ မရှိပါ။ ပိုစောသော မက်ဆေ့ဂျ်များတွင် ရှိနိုင်ပါသည်။</string>
 </resources>

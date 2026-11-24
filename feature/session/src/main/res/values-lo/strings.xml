@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">ກຳລັງເຮັດວຽກ</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">ສະແດງຕົວແທນຍ່ອຍ ແລະ shell ທີ່ກຳລັງເຮັດວຽກ</string>
+    <string name="session_background_work_show_label">ສະແດງຕົວແທນຍ່ອຍ, ສະຄຣິບ ແລະ shell ທີ່ກຳລັງເຮັດວຽກ</string>
     <string name="session_background_work_collapsed_description">ຫຍໍ້ແລ້ວ</string>
     <string name="session_background_work_subagents_title">ຕົວແທນຍ່ອຍ</string>
     <string name="session_background_work_open_subagent_label">ເປີດເຊດຊັນຂອງຕົວແທນຍ່ອຍ</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">ບໍ່ຮູ້ຈັກ</string>
     <string name="session_sheet_context_tokens">%1$s ໂທເຄັນ</string>
     <string name="session_sheet_cost">ຄ່າໃຊ້ຈ່າຍ</string>
+    <string name="session_sheet_media">ສື່</string>
+    <string name="session_sheet_media_value">ໄຟລ໌ ແລະລິ້ງ</string>
     <string name="session_always_notify">ແຈ້ງເຕືອນສະເໝີ</string>
     <string name="session_always_notify_message_phone">ແຈ້ງເຕືອນໂທລະສັບນີ້ທຸກຄັ້ງທີ່ຕອບແລ້ວ ເຖິງແມ່ນເຈົ້າບໍ່ໄດ້ສົ່ງຈາກທີ່ນີ້.</string>
     <string name="session_always_notify_message_tablet">ແຈ້ງເຕືອນແທັບເລັດນີ້ທຸກຄັ້ງທີ່ຕອບແລ້ວ ເຖິງແມ່ນເຈົ້າບໍ່ໄດ້ສົ່ງຈາກທີ່ນີ້.</string>
@@ -192,7 +194,15 @@
     <plurals name="session_background_work_shell_count">
         <item quantity="other">%1$d shell</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="other">%1$d ສະຄຣິບ</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">ສະຄຣິບ</string>
+    <string name="session_background_work_stop_script_label">ຢຸດສະຄຣິບ</string>
+    <string name="session_background_work_stop_subagent_label">ຢຸດຕົວແທນຍ່ອຍ</string>
+    <string name="session_background_work_stop_script_failed">ຢຸດສະຄຣິບບໍ່ໄດ້</string>
+    <string name="session_background_work_stop_subagent_failed">ຢຸດຕົວແທນຍ່ອຍບໍ່ໄດ້</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">ສົ່ງຂໍ້ຄວາມ</string>
@@ -285,4 +295,26 @@
     <string name="session_shell_stop_failed">ຢຸດແກະບໍ່ໄດ້</string>
     <string name="session_quote_remove_description">ເອົາການອ້າງອີງອອກ</string>
     <string name="session_quote_comment_placeholder">ເພີ່ມຄຳເຫັນ (ທາງເລືອກ)…</string>
+    <string name="session_media_title">ສື່ຂອງເຊດຊັນ</string>
+    <string name="session_media_filter_media">ສື່</string>
+    <string name="session_media_filter_files">ໄຟລ໌</string>
+    <string name="session_media_filter_links">ລິ້ງ</string>
+    <string name="session_media_layout_description">ການຈັດວາງສື່</string>
+    <string name="session_media_layout_tiles">ປຸ່ມລັດ</string>
+    <string name="session_media_layout_list">ລາຍການ</string>
+    <string name="session_media_origin_user">ເຈົ້າສົ່ງ</string>
+    <string name="session_media_origin_agent">ຕົວແທນແບ່ງປັນ</string>
+    <string name="session_media_open_click_label">ເປີດ</string>
+    <string name="session_media_open_link_click_label">ເປີດລິ້ງ</string>
+    <string name="session_media_empty_media_title">ບໍ່ມີສື່</string>
+    <string name="session_media_empty_media_message">ຮູບພາບ, ວິດີໂອ ແລະສຽງທີ່ແບ່ງປັນໃນເຊດຊັນນີ້ຈະສະແດງຢູ່ບ່ອນນີ້.</string>
+    <string name="session_media_empty_files_title">ບໍ່ມີໄຟລ໌</string>
+    <string name="session_media_empty_files_message">ເອກະສານ ແລະຂໍ້ຄວາມທີ່ວາງຈາກເຊດຊັນນີ້ຈະສະແດງຢູ່ບ່ອນນີ້.</string>
+    <string name="session_media_empty_links_title">ບໍ່ມີລິ້ງ</string>
+    <string name="session_media_empty_links_message">ລິ້ງເວັບທີ່ແບ່ງປັນໃນເຊດຊັນນີ້ຈະສະແດງຢູ່ບ່ອນນີ້.</string>
+    <string name="session_media_earlier_note">ຂໍ້ຄວາມກ່ອນໜ້ານີ້ຍັງບໍ່ໄດ້ໂຫຼດເທື່ອ.</string>
+    <string name="session_media_load_earlier">ໂຫຼດຂໍ້ຄວາມກ່ອນໜ້າ</string>
+    <string name="session_media_loading_earlier">ກຳລັງໂຫຼດ…</string>
+    <string name="session_media_earlier_failed">ໂຫຼດຂໍ້ຄວາມກ່ອນໜ້າບໍ່ໄດ້. ກວດການເຊື່ອມຕໍ່ຂອງເຈົ້າແລ້ວລອງໃໝ່.</string>
+    <string name="session_media_earlier_nothing_new">ຂໍ້ຄວາມທີ່ຫາກໍໂຫຼດບໍ່ມີຫຍັງໃໝ່. ຂໍ້ຄວາມກ່ອນໜ້າອາດມີເພີ່ມ.</string>
 </resources>

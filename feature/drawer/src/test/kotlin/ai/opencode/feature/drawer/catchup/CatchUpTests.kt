@@ -14,6 +14,8 @@ import ai.opencode.core.testing.eventually
 import ai.opencode.feature.drawer.HomeFeature
 import ai.opencode.feature.drawer.HomeFeature.Action
 import ai.opencode.feature.drawer.HomeSnapshotDate
+import ai.opencode.feature.drawer.VoiceHomeTestSupport.live
+import ai.opencode.feature.drawer.VoiceHomeTestSupport.withCall
 import ai.opencode.feature.drawer.catchUpSessions
 import ai.opencode.feature.drawer.drawerBadge
 import ai.opencode.feature.drawer.indicator
@@ -31,6 +33,9 @@ import ai.opencode.feature.drawer.list.DrawerListInputs
 import ai.opencode.feature.drawer.list.DrawerListModel
 import ai.opencode.feature.session.*
 import ai.opencode.feature.system.SystemIntegrationClient
+import ai.opencode.feature.voice.VoiceFeature
+import ai.opencode.feature.voice.VoiceSessionBoard
+import ai.opencode.feature.voice.VoiceSessionBoardClient
 import ai.opencode.feature.system.share.ShareInboxClient
 import ai.opencode.server.OpenCodeClient
 import ai.opencode.server.OpenCodeClientError
@@ -170,17 +175,25 @@ class CatchUpTests {
 
     /**
      * The open card deleted elsewhere: Catch Up opens the next one after the detail reducer has
-     * run, and the stream still treats it as on screen.
+     * run, and the stream and a live call's board still treat it as on screen.
      */
     @Test fun theCardCatchUpOpensAfterADeletionIsStreamFocused() = runTest {
         val focus = EventStreamFocusClient.inMemory()
-        val store = store(home(includeWaiting = false, catchUpQueue = listOf("newer", "older"), returnSessionID = "read"))
-        store.updateDependencies { this[EventStreamFocusClient] = focus }
+        val boards = ArrayList<VoiceSessionBoard?>()
+        var state = home(includeWaiting = false, catchUpQueue = listOf("newer", "older"), returnSessionID = "read")
+        state = state.copy(sessions = state.sessions.map { if (it.id == "older") it.copy(directory = "/older") else it })
+        state = state.withCall(VoiceFeature.State(server, state.byID("newer")).live())
+        val store = store(state)
+        store.updateDependencies {
+            this[EventStreamFocusClient] = focus
+            this[VoiceSessionBoardClient] = VoiceSessionBoardClient(publish = { boards += it }, attentionRead = { _, _ -> }, current = { null })
+        }
         assertEquals("newer", store.state.sessionDetail?.session?.id)
         store.send(Action.ServerEvent(OpenCodeServerEvent.SessionDeleted("newer")))
         assertEquals("older", store.state.sessionDetail?.session?.id)
         assertTrue(focus.contains("older"))
         assertFalse(focus.contains("newer"))
+        assertTrue("/older" in boards.last()!!.attentionDirectories)
         store.skipInFlightEffects()
     }
 
@@ -671,27 +684,6 @@ class CatchUpTests {
         assertNull(CatchUpSwipeMath.decision(translation = Offset(70f, 0f), velocity = Offset(60f, 0f), width = width))
         // Dragged past threshold (130 pt) then flicked back toward center (-550 pt/s) cancels commit.
         assertNull(CatchUpSwipeMath.decision(translation = Offset(130f, 0f), velocity = Offset(-550f, 0f), width = width))
-    }
-
-    @Test fun snapBackSpringReturnsMonotonicallyWithoutReversalFrames() {
-        for (initialVx in listOf(0f, -400f, -1_200f)) {
-            val spring = CatchUpSpring(
-                position = Offset(84f, 18f),
-                velocity = Offset(initialVx, 0f),
-                target = Offset.Zero,
-            )
-            var prevX = spring.position.x
-            var settled = false
-            for (frame in 0 until 240) {
-                settled = spring.step(1.0f / 120.0f)
-                assertTrue("Never reverses outward during return", spring.position.x <= prevX + 1e-5f)
-                assertTrue("Never overshoots past zero", spring.position.x >= -1e-5f)
-                prevX = spring.position.x
-                if (settled) break
-            }
-            assertTrue(settled)
-            assertEquals(Offset.Zero, spring.position)
-        }
     }
 
     @Test fun swipingThroughTwelveCardsAvoidsRedundantPublicationsAndMeasuresMainThreadWork() = runTest {

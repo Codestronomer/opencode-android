@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">実行中</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">実行中のサブエージェントとシェルを表示</string>
+    <string name="session_background_work_show_label">実行中のサブエージェント、スクリプト、シェルを表示</string>
     <string name="session_background_work_collapsed_description">折りたたみ済み</string>
     <string name="session_background_work_subagents_title">サブエージェント</string>
     <string name="session_background_work_open_subagent_label">サブエージェントのセッションを開く</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">不明</string>
     <string name="session_sheet_context_tokens">%1$sトークン</string>
     <string name="session_sheet_cost">費用</string>
+    <string name="session_sheet_media">メディア</string>
+    <string name="session_sheet_media_value">ファイルとリンク</string>
     <string name="session_always_notify">常に通知</string>
     <string name="session_always_notify_message_phone">他の端末から送ったメッセージも含め、応答が完了するたびにこのスマホに通知します。</string>
     <string name="session_always_notify_message_tablet">他の端末から送ったメッセージも含め、応答が完了するたびにこのタブレットに通知します。</string>
@@ -192,7 +194,15 @@
     <plurals name="session_background_work_shell_count">
         <item quantity="other">シェル%1$d個</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="other">%1$d件のスクリプト</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">スクリプト</string>
+    <string name="session_background_work_stop_script_label">スクリプトを停止</string>
+    <string name="session_background_work_stop_subagent_label">サブエージェントを停止</string>
+    <string name="session_background_work_stop_script_failed">スクリプトを停止できませんでした</string>
+    <string name="session_background_work_stop_subagent_failed">サブエージェントを停止できませんでした</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">メッセージを送信</string>
@@ -285,4 +295,26 @@
     <string name="session_shell_stop_failed">シェルを停止できませんでした</string>
     <string name="session_quote_remove_description">引用を削除</string>
     <string name="session_quote_comment_placeholder">コメントを追加（任意）…</string>
+    <string name="session_media_title">セッションのメディア</string>
+    <string name="session_media_filter_media">メディア</string>
+    <string name="session_media_filter_files">ファイル</string>
+    <string name="session_media_filter_links">リンク</string>
+    <string name="session_media_layout_description">メディアのレイアウト</string>
+    <string name="session_media_layout_tiles">タイル</string>
+    <string name="session_media_layout_list">一覧表示</string>
+    <string name="session_media_origin_user">あなたが送信</string>
+    <string name="session_media_origin_agent">エージェントが共有</string>
+    <string name="session_media_open_click_label">開く</string>
+    <string name="session_media_open_link_click_label">リンクを開く</string>
+    <string name="session_media_empty_media_title">メディアはありません</string>
+    <string name="session_media_empty_media_message">このセッションで共有された画像、動画、音声がここに表示されます。</string>
+    <string name="session_media_empty_files_title">ファイルがありません</string>
+    <string name="session_media_empty_files_message">このセッションのドキュメントや貼り付けたテキストがここに表示されます。</string>
+    <string name="session_media_empty_links_title">リンクがありません</string>
+    <string name="session_media_empty_links_message">このセッションで共有されたWebリンクがここに表示されます。</string>
+    <string name="session_media_earlier_note">以前のメッセージはまだ読み込まれていません。</string>
+    <string name="session_media_load_earlier">以前のメッセージを読み込む</string>
+    <string name="session_media_loading_earlier">読み込み中…</string>
+    <string name="session_media_earlier_failed">以前のメッセージを読み込めませんでした。接続を確認して、もう一度お試しください。</string>
+    <string name="session_media_earlier_nothing_new">読み込んだメッセージに新しい内容はありません。さらに以前のメッセージに続きがあるかもしれません。</string>
 </resources>

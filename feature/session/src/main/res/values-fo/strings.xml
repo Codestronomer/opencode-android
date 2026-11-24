@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">Koyrir</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Vís koyrandi undirumboð og shellar</string>
+    <string name="session_background_work_show_label">Vís koyrandi undirumboð, skript og shellar</string>
     <string name="session_background_work_collapsed_description">Samanlagt</string>
     <string name="session_background_work_subagents_title">Undirumboð</string>
     <string name="session_background_work_open_subagent_label">Opna setuna hjá undirumboðinum</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Ókent</string>
     <string name="session_sheet_context_tokens">%1$s token</string>
     <string name="session_sheet_cost">Kostnaður</string>
+    <string name="session_sheet_media">Miðlar</string>
+    <string name="session_sheet_media_value">Fílur og leinkjur</string>
     <string name="session_always_notify">Boða altíð frá</string>
     <string name="session_always_notify_message_phone">Boða frá á hesi telefonini, tá ið eitt svar er liðugt, eisini tá ið boðini ikki vórðu send hiðani.</string>
     <string name="session_always_notify_message_tablet">Boða frá á hesum teldlinum, tá ið eitt svar er liðugt, eisini tá ið boðini ikki vórðu send hiðani.</string>
@@ -199,7 +201,16 @@
         <item quantity="one">%1$d shell</item>
         <item quantity="other">%1$d shellar</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d skript</item>
+        <item quantity="other">%1$d skript</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Skript</string>
+    <string name="session_background_work_stop_script_label">Steðga skripti</string>
+    <string name="session_background_work_stop_subagent_label">Steðga undirumboði</string>
+    <string name="session_background_work_stop_script_failed">Kundi ikki steðga skripti</string>
+    <string name="session_background_work_stop_subagent_failed">Kundi ikki steðga undirumboði</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Send boð</string>
@@ -296,4 +307,26 @@
     <string name="session_shell_stop_failed">Kundi ikki steðga shelli</string>
     <string name="session_quote_remove_description">Tak endurgeving burtur</string>
     <string name="session_quote_comment_placeholder">Legg eina viðmerking afturat (valfrítt)…</string>
+    <string name="session_media_title">Miðlar í setuni</string>
+    <string name="session_media_filter_media">Miðlar</string>
+    <string name="session_media_filter_files">Fílur</string>
+    <string name="session_media_filter_links">Leinkjur</string>
+    <string name="session_media_layout_description">Miðlauppsetan</string>
+    <string name="session_media_layout_tiles">Flísar</string>
+    <string name="session_media_layout_list">Listi</string>
+    <string name="session_media_origin_user">Sent av tær</string>
+    <string name="session_media_origin_agent">Deilt av agentinum</string>
+    <string name="session_media_open_click_label">Opna</string>
+    <string name="session_media_open_link_click_label">Lat leinki upp</string>
+    <string name="session_media_empty_media_title">Eingir miðlar</string>
+    <string name="session_media_empty_media_message">Myndir, sjónbond og ljóð, sum verða deild í hesi setuni, síggjast her.</string>
+    <string name="session_media_empty_files_title">Ongar fílur</string>
+    <string name="session_media_empty_files_message">Skjøl og innsettur tekstur frá hesi setuni síggjast her.</string>
+    <string name="session_media_empty_links_title">Ongar leinkjur</string>
+    <string name="session_media_empty_links_message">Leinkjur á vevið, sum verða deildar í hesi setuni, síggjast her.</string>
+    <string name="session_media_earlier_note">Eldri boð eru ikki heintað enn.</string>
+    <string name="session_media_load_earlier">Heinta eldri boð</string>
+    <string name="session_media_loading_earlier">Heintar…</string>
+    <string name="session_media_earlier_failed">Kundi ikki heinta eldri boð. Kanna sambandið og royn aftur.</string>
+    <string name="session_media_earlier_nothing_new">Einki nýtt her í boðunum, sum júst vórðu heintað. Eldri boð kunnu hava meira.</string>
 </resources>

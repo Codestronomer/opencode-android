@@ -6,11 +6,11 @@ import ai.opencode.feature.system.SystemAction
 import ai.opencode.feature.system.share.ShareConversation
 import ai.opencode.server.LocalNetworkPermission
 import ai.opencode.server.OpenCodePairingLink
+import ai.opencode.server.TranscriptCachePersistence
 import ai.opencode.core.dependencies.dependency
 import ai.opencode.core.diagnostics.PerfFrameSampler
 import ai.opencode.core.diagnostics.PerfTimeline
 import ai.opencode.core.sharing.shared
-import ai.opencode.core.touch.TouchRecoveryClient
 import ai.opencode.core.ui.ThemeSharedKeys
 import ai.opencode.feature.composer.DictationPermissionClient
 import ai.opencode.feature.system.notifications.NotificationPermission
@@ -26,7 +26,6 @@ import kotlinx.coroutines.CompletableDeferred
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.Window
 import androidx.appcompat.app.AppCompatActivity
@@ -99,6 +98,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Debug lab hooks run before anything reads the store.
         if (savedInstanceState == null) LabLaunch.apply(intent)
+        // The transcript cache decodes off the main thread; the store's first read takes it.
+        dependency(TranscriptCachePersistence).prefetch()
         // The window's store: the first window's, or a further window's on its own session.
         root.resolve(this, RootStore.target(intent, savedInstanceState))
         val splash = installSplashScreen()
@@ -235,12 +236,6 @@ class MainActivity : AppCompatActivity() {
         val shown = root.shown ?: root.pendingTarget ?: return
         outState.putString(SessionWindowTarget.EXTRA_SERVER_ID, shown.serverID)
         outState.putString(SessionWindowTarget.EXTRA_SESSION_ID, shown.sessionID)
-    }
-
-    /** A finger coming down arms touch recovery's sampler: it only watches, never consumes. */
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) dependency(TouchRecoveryClient).touched()
-        return super.dispatchTouchEvent(event)
     }
 
     override fun onDestroy() {

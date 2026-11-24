@@ -26,6 +26,7 @@ import ai.opencode.core.ui.ThisDevice
 import ai.opencode.feature.drawer.HomeConnectionFeature
 import ai.opencode.feature.drawer.HomeFeature
 import ai.opencode.feature.drawer.HomeSnapshotDate
+import ai.opencode.feature.drawer.InboxSidebarFeature
 import ai.opencode.feature.drawer.keepingSettings
 import ai.opencode.feature.drawer.persistingSnapshot
 import ai.opencode.feature.media.BrowserFeature
@@ -45,6 +46,7 @@ import ai.opencode.feature.voice.VoiceOpenSessionFeature
 import ai.opencode.feature.voice.ScreenAwakeClient
 import ai.opencode.feature.voice.VoiceCallLogClient
 import ai.opencode.feature.voice.VoiceCallServiceClient
+import ai.opencode.feature.voice.VoiceFeature
 import ai.opencode.server.CachedHomeSnapshot
 import ai.opencode.server.ConnectionFailureDetail
 import ai.opencode.server.LocalNetworkPermission
@@ -59,6 +61,8 @@ import ai.opencode.server.model.OpenCodeHomeSnapshot
 import ai.opencode.server.model.OpenCodeSession
 import ai.opencode.server.model.keepingFirstPrompts
 import ai.opencode.server.remember
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
@@ -237,6 +241,9 @@ class AppFeature : Reducer<AppFeature.State, AppFeature.Action> {
 
         /** A call that is connecting or connected keeps the screen on, but only in the foreground. */
         val keepsScreenAwake: Boolean get() = isInForeground && home?.hasLiveCall == true
+
+        /** A call is on while the app is in the background, where nobody sees it. */
+        val callIsOutOfSight: Boolean get() = !isInForeground && home?.sessionDetail?.voice != null
 
         val errorMessage: String? get() = (connection as? Connection.Failed)?.message
         val errorContext: FailureContext? get() = (connection as? Connection.Failed)?.context
@@ -497,7 +504,7 @@ class AppFeature : Reducer<AppFeature.State, AppFeature.Action> {
         data class DelegatorClientTools(val action: ClientToolsFeature.Action) : Action
         data class VoiceDelegatorLocated(val location: ClientToolsLocation) : Action
         data class VoiceOpenSession(val action: VoiceOpenSessionFeature.Action) : Action
-        data class HomeResponse(val attemptID: Int, val result: Result<OpenCodeHomeSnapshot>) : Action
+        data class HomeResponse(val attemptID: Int, val result: Result<OpenCodeHomeSnapshot>, val archived: List<OpenCodeSession> = emptyList()) : Action
         /** Server Flow: the switch's server didn't answer in time. */
         data class ServerSwitchTimedOut(val attemptID: Int) : Action
     }
@@ -566,6 +573,11 @@ class AppFeature : Reducer<AppFeature.State, AppFeature.Action> {
         .onChange({ it.keepsScreenAwake }) { _, keeps, state ->
             dependency(ScreenAwakeClient).set(keeps)
             Reduced(state)
+        }
+        // Also covers a call that starts while the app is in the background.
+        .onChange({ it.callIsOutOfSight }) { _, _, state ->
+            if (state.home?.sessionDetail?.voice == null) return@onChange Reduced(state)
+            Reduced(state, Effect.send(voiceAction(VoiceFeature.Action.AppVisibilityChanged(state.isInForeground))))
         }
 
     override fun reduce(state: State, action: Action): Reduced<State, Action> {
@@ -978,16 +990,27 @@ class AppFeature : Reducer<AppFeature.State, AppFeature.Action> {
             saved.remember()
         }
         val client = dependency(OpenCodeClient)
+        val readsArchived = attempt.switchesBack
         return Reduced(
             next,
             Effect.merge(
                 forgotten + Effect.run<Action> { send ->
-                    val result = try {
-                        Result.success(client.homeSnapshot(server))
-                    } catch (error: OpenCodeClientError) {
-                        Result.failure(error)
+                    coroutineScope {
+                        val archived = async {
+                            if (!readsArchived) return@async emptyList()
+                            try {
+                                client.archivedSessions(server, "", InboxSidebarFeature.ARCHIVED_LIMIT)
+                            } catch (error: OpenCodeClientError) {
+                                emptyList()
+                            }
+                        }
+                        val result = try {
+                            Result.success(client.homeSnapshot(server))
+                        } catch (error: OpenCodeClientError) {
+                            Result.failure(error)
+                        }
+                        send(Action.HomeResponse(action.attemptID, result, archived.await()))
                     }
-                    send(Action.HomeResponse(action.attemptID, result))
                 }.cancellable(CancelID.Home, cancelInFlight = true),
             ),
         )
@@ -1037,7 +1060,7 @@ class AppFeature : Reducer<AppFeature.State, AppFeature.Action> {
         next = next.copy(
             home = next.home
                 ?.let { if (keepsSettings) it.keepingSettings(previous) else it }
-                ?.copy(serverReachability = reachability)
+                ?.let { it.copy(serverReachability = reachability, inboxSidebarStatus = it.inboxSidebarStatus.copy(archived = action.archived)) }
                 ?.persistingSnapshot(dependency(HomeSnapshotDate).now()),
         )
         next = next.copy(

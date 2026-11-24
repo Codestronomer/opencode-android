@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">Töös</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Näita töötavaid alamagente ja shelle</string>
+    <string name="session_background_work_show_label">Näita töötavaid alamagente, skripte ja shelle</string>
     <string name="session_background_work_collapsed_description">Ahendatud</string>
     <string name="session_background_work_subagents_title">Alamagendid</string>
     <string name="session_background_work_open_subagent_label">Ava alamagendi seanss</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Teadmata</string>
     <string name="session_sheet_context_tokens">%1$s tokenit</string>
     <string name="session_sheet_cost">Kulu</string>
+    <string name="session_sheet_media">Meedia</string>
+    <string name="session_sheet_media_value">Failid ja lingid</string>
     <string name="session_always_notify">Teavita alati</string>
     <string name="session_always_notify_message_phone">Teavita selles telefonis iga vastuse valmimisest, ka siis, kui päring saadeti mujalt.</string>
     <string name="session_always_notify_message_tablet">Teavita selles tahvelarvutis iga vastuse valmimisest, ka siis, kui päring saadeti mujalt.</string>
@@ -199,7 +201,16 @@
         <item quantity="one">%1$d shell</item>
         <item quantity="other">%1$d shelli</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d skript</item>
+        <item quantity="other">%1$d skripti</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Skriptid</string>
+    <string name="session_background_work_stop_script_label">Peata skript</string>
+    <string name="session_background_work_stop_subagent_label">Peata alamagent</string>
+    <string name="session_background_work_stop_script_failed">Skripti peatamine ebaõnnestus</string>
+    <string name="session_background_work_stop_subagent_failed">Alamagendi peatamine ebaõnnestus</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Saada sõnum</string>
@@ -296,4 +307,26 @@
     <string name="session_shell_stop_failed">Shelli peatamine ebaõnnestus</string>
     <string name="session_quote_remove_description">Eemalda tsitaat</string>
     <string name="session_quote_comment_placeholder">Lisa soovi korral kommentaar…</string>
+    <string name="session_media_title">Seansi meedia</string>
+    <string name="session_media_filter_media">Meedia</string>
+    <string name="session_media_filter_files">Failid</string>
+    <string name="session_media_filter_links">Lingid</string>
+    <string name="session_media_layout_description">Meedia paigutus</string>
+    <string name="session_media_layout_tiles">Paanid</string>
+    <string name="session_media_layout_list">Nimekiri</string>
+    <string name="session_media_origin_user">Saatsid sina</string>
+    <string name="session_media_origin_agent">Jagas agent</string>
+    <string name="session_media_open_click_label">Ava</string>
+    <string name="session_media_open_link_click_label">Ava link</string>
+    <string name="session_media_empty_media_title">Meediat pole</string>
+    <string name="session_media_empty_media_message">Siin kuvatakse selles seansis jagatud pildid, videod ja heli.</string>
+    <string name="session_media_empty_files_title">Faile pole</string>
+    <string name="session_media_empty_files_message">Siin kuvatakse selle seansi dokumendid ja kleebitud tekst.</string>
+    <string name="session_media_empty_links_title">Linke pole</string>
+    <string name="session_media_empty_links_message">Selles seansis jagatud veebilingid ilmuvad siia.</string>
+    <string name="session_media_earlier_note">Varasemaid sõnumeid pole veel laaditud.</string>
+    <string name="session_media_load_earlier">Laadi varasemad sõnumid</string>
+    <string name="session_media_loading_earlier">Laadimine…</string>
+    <string name="session_media_earlier_failed">Varasemate sõnumite laadimine ebaõnnestus. Kontrolli ühendust ja proovi uuesti.</string>
+    <string name="session_media_earlier_nothing_new">Äsja laaditud sõnumites pole siin midagi uut. Varasemates võib veel olla.</string>
 </resources>

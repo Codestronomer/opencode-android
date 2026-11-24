@@ -82,6 +82,7 @@ class NewSessionDraftTests {
         val store: TestStore<AppFeature.State, AppFeature.Action> = shared.appStore(app, effects) {
             this[Clock] = TestClock()
             this[OpenCodeClient] = noSends(gate.client()).copy(
+                archivedSessions = { _, _, _ -> emptyList() },
                 modelCatalog = { server, _ ->
                     val model = if (server.persistenceID == studio.persistenceID) studioModel else laptopModel
                     OpenCodeModelCatalog(models = listOf(model), defaultModel = model)
@@ -90,10 +91,16 @@ class NewSessionDraftTests {
         }
 
         store.send(detailAction(SessionFeature.Action.Task)) { it.detail { d -> d.copy(isLoadingModels = true) } }
+        store.receive(detailAction(SessionFeature.Action.AgentsRequested))
         store.receive(
             { it == detailAction(SessionFeature.Action.ModelsResponse(Result.success(OpenCodeModelCatalog(models = listOf(laptopModel), defaultModel = laptopModel)))) },
             "home.sessionDetail.presented.modelsResponse.success",
-        ) { it.detail { d -> d.copy(isLoadingModels = false, models = listOf(laptopModel), currentModel = laptopModel.ref) } }
+        ) {
+            it.detail { d ->
+                d.copy(isLoadingModels = false, models = listOf(laptopModel), currentModel = laptopModel.ref, agentSelection = d.agentSelection.copy(defaultModel = laptopModel))
+            }
+        }
+        store.receive(detailAction(SessionFeature.Action.AgentsResponse(Result.success(emptyList()))))
         assertEquals(ModelDisplayNames(listOf(laptopModel)), store.state.home?.sessionDetail?.modelDisplayNamesByServer?.value?.get(laptop.persistenceID))
         assertEquals("Laptop 4", store.state.home?.sessionDetail?.currentModelName)
 
@@ -132,10 +139,16 @@ class NewSessionDraftTests {
         assertNotEquals("Both initial drafts have visit 1, but serverID distinguishes them", laptopIdentity, studioIdentity)
 
         store.send(detailAction(SessionFeature.Action.Task)) { it.detail { d -> d.copy(isLoadingModels = true) } }
+        store.receive(detailAction(SessionFeature.Action.AgentsRequested))
         store.receive(
             { it == detailAction(SessionFeature.Action.ModelsResponse(Result.success(OpenCodeModelCatalog(models = listOf(studioModel), defaultModel = studioModel)))) },
             "home.sessionDetail.presented.modelsResponse.success",
-        ) { it.detail { d -> d.copy(isLoadingModels = false, models = listOf(studioModel), currentModel = studioModel.ref) } }
+        ) {
+            it.detail { d ->
+                d.copy(isLoadingModels = false, models = listOf(studioModel), currentModel = studioModel.ref, agentSelection = d.agentSelection.copy(defaultModel = studioModel))
+            }
+        }
+        store.receive(detailAction(SessionFeature.Action.AgentsResponse(Result.success(emptyList()))))
         assertEquals(ModelDisplayNames(listOf(studioModel)), store.state.home?.sessionDetail?.modelDisplayNamesByServer?.value?.get(studio.persistenceID))
         assertEquals("Studio 4", store.state.home?.sessionDetail?.currentModelName)
         assertNotNull(store.state.home?.sessionDetail?.currentLevelScale)

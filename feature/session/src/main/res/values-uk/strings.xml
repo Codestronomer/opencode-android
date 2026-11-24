@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">Виконується</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Показати активні субагенти й команди</string>
+    <string name="session_background_work_show_label">Показати активні субагенти, скрипти й команди</string>
     <string name="session_background_work_collapsed_description">Згорнуто</string>
     <string name="session_background_work_subagents_title">Субагенти</string>
     <string name="session_background_work_open_subagent_label">Відкрити сесію субагента</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Невідомо</string>
     <string name="session_sheet_context_tokens">%1$s токенів</string>
     <string name="session_sheet_cost">Вартість</string>
+    <string name="session_sheet_media">Медіа</string>
+    <string name="session_sheet_media_value">Файли й посилання</string>
     <string name="session_always_notify">Завжди сповіщати</string>
     <string name="session_always_notify_message_phone">Сповіщати на цьому телефоні про кожну готову відповідь, навіть на запити з інших пристроїв.</string>
     <string name="session_always_notify_message_tablet">Сповіщати на цьому планшеті про кожну готову відповідь, навіть на запити з інших пристроїв.</string>
@@ -213,7 +215,18 @@
         <item quantity="many">%1$d команд</item>
         <item quantity="other">%1$d команди</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d скрипт</item>
+        <item quantity="few">%1$d скрипти</item>
+        <item quantity="many">%1$d скриптів</item>
+        <item quantity="other">%1$d скрипту</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Скрипти</string>
+    <string name="session_background_work_stop_script_label">Зупинити скрипт</string>
+    <string name="session_background_work_stop_subagent_label">Зупинити субагента</string>
+    <string name="session_background_work_stop_script_failed">Не вдалося зупинити скрипт</string>
+    <string name="session_background_work_stop_subagent_failed">Не вдалося зупинити субагента</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Надіслати повідомлення</string>
@@ -318,4 +331,26 @@
     <string name="session_shell_stop_failed">Не вдалося зупинити команду</string>
     <string name="session_quote_remove_description">Видалити цитату</string>
     <string name="session_quote_comment_placeholder">Додайте коментар за бажанням…</string>
+    <string name="session_media_title">Медіа сесії</string>
+    <string name="session_media_filter_media">Медіа</string>
+    <string name="session_media_filter_files">Файли</string>
+    <string name="session_media_filter_links">Посилання</string>
+    <string name="session_media_layout_description">Макет медіа</string>
+    <string name="session_media_layout_tiles">Плитки</string>
+    <string name="session_media_layout_list">Список</string>
+    <string name="session_media_origin_user">Надіслано вами</string>
+    <string name="session_media_origin_agent">Надіслано агентом</string>
+    <string name="session_media_open_click_label">Відкрити</string>
+    <string name="session_media_open_link_click_label">Відкрити посилання</string>
+    <string name="session_media_empty_media_title">Немає медіа</string>
+    <string name="session_media_empty_media_message">Тут з’являтимуться зображення, відео й аудіо, надіслані в цій сесії.</string>
+    <string name="session_media_empty_files_title">Немає файлів</string>
+    <string name="session_media_empty_files_message">Тут з’являтимуться документи та вставлений текст із цієї сесії.</string>
+    <string name="session_media_empty_links_title">Немає посилань</string>
+    <string name="session_media_empty_links_message">Вебпосилання з цієї сесії з’являться тут.</string>
+    <string name="session_media_earlier_note">Раніші повідомлення ще не завантажено.</string>
+    <string name="session_media_load_earlier">Завантажити раніші повідомлення</string>
+    <string name="session_media_loading_earlier">Завантаження…</string>
+    <string name="session_media_earlier_failed">Не вдалося завантажити попередні повідомлення. Перевірте підключення й спробуйте ще раз.</string>
+    <string name="session_media_earlier_nothing_new">У щойно завантажених повідомленнях нічого нового. Можливо, у попередніх є більше.</string>
 </resources>

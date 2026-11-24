@@ -2,7 +2,7 @@
 
 <!-- tallow -->
 
-A native Android port of the OpenCode iOS app (Kotlin, Jetpack Compose, Material 3 Expressive).
+The OpenCode app for Android (Kotlin, Jetpack Compose, Material 3 Expressive).
 Lives at github.com/anomalyco/opencode-android. Work goes on a feature branch → squash-merged PR
 into `dev`, the default branch.
 CI (`.github/workflows/ci.yml`) runs `scripts/check.sh` on every PR and push to `dev`; a push to
@@ -23,14 +23,16 @@ by hand to release sooner (`gh workflow run release.yml --ref dev -f bump=patch`
 - Track every iOS file in `docs/parity/<area>.md` (see [docs/parity/README.md](docs/parity/README.md))
   and update the row in the same commit. Where Android differs on purpose, say so in the row.
 - Visuals follow the OpenCode desktop design system (`packages/ui` in the opencode repo), not
-  iOS: Inter for UI text and IBM Plex Mono for code and tool output (bundled, OFL), the
+  iOS: Inter for UI text and OpenMono for code and tool output (bundled, OFL, with the licence
+  texts shipped from `core/src/main/assets/licenses/`; refresh the OpenMono files with
+  `scripts/update-openmono.py`), the
   desktop's type scale in sp, flat surfaces with hairline borders instead of tonal elevation
   or glass, small radii (`OpenCodeRadius`, `OpenCodeShape.control`), the desktop palette as
   the default theme (`BrandPalette`). Use `core/ui` tokens and `OpenCodeSurfaces`
   (`OpenCodeAlertDialog`, floating fill + `openCodeHairline`) rather than raw Material
   colours or capsules. Behaviour stays Android: Material components' structure, system back
   and predictive back, sheets, IME, TalkBack semantics, ≥48 dp targets and font scaling.
-  SF Symbols → Material Symbols via `OpenCodeIcons`; BerkeleyMono only for the wordmark. No
+  SF Symbols → Material Symbols via `OpenCodeIcons`. No
   glass/blur imitation, no web views as the app shell, no React Native/Flutter/KMP UI.
 - The transcript list's motion (scroll following, the send, row entrances and growth) is Android-native
   on purpose: a bottom-anchored LazyColumn with standard Compose animations. Don't port iOS's transcript
@@ -39,12 +41,22 @@ by hand to release sooner (`gh workflow run release.yml --ref dev -f bump=patch`
 - The full-screen media viewer's motion (open, close, drag to dismiss, predictive back) is Android-native
   on purpose: an animated frame and rounded clip in `MediaPresentation.kt`. Don't port iOS's viewer flight;
   the drawing hand-off into the composer still follows iOS.
-- The composer's autocomplete list motion (opening, filtering, scrolling, the highlight, picking a row) is
-  Android-native on purpose: a `LazyColumn` with `animateItem` in `AutocompleteViews.kt`. Don't port iOS's
-  autocomplete simulation or chip flight; the list's rows, ordering, selection and copy still follow iOS.
+- The composer's autocomplete list motion is Android-native on purpose: a `LazyColumn` in
+  `AutocompleteViews.kt` whose panel opens and closes on the panel roles, while filtering and the highlight
+  land on the next frame. Don't port iOS's autocomplete simulation or chip flight; the list's rows, ordering,
+  selection and copy still follow iOS.
+- Catch Up's card stack motion (the swipe, settle, fling, Undo and preview) is Android-native on purpose: the drag
+  writes the card's offset and Compose `animate`/`Animatable` jobs on motion roles in `CatchUpStackController.kt`
+  move it; the swiped card flies off as itself. Entering and leaving Catch Up is one stage fade on
+  `MotionRole.Swap` in `SessionDrawerController.kt`. Don't port iOS's card flights, mode morphs or snapshots; the
+  stack's flows, gestures, haptics and copy still follow iOS.
 - The session's page stack (subagent and browser pages) is Android-native on purpose: one animated
   shared-axis move in `SessionPageStack.kt` and system predictive back. Don't port iOS's full-width
   back pan or its stack motion; covered pages still stay composed so they keep their state.
+- The composer's + menu is Android-native on purpose: a Material `DropdownMenu` hanging from + in
+  `SessionView.kt` (`SessionAttachmentDropdown`), with Material's motion and a non-focusable popup so the
+  keyboard stays up. Don't port iOS's glass surface, hold-to-open or slide-to-choose, or `TouchRecovery`;
+  its rows, order, haptics and keyboard hand-back still follow iOS.
 
 ## Modules (fixed; never edit `settings.gradle.kts`)
 
@@ -218,6 +230,7 @@ Add a new library only with a one-line justification here.
   commit to `dev` directly), one coherent change per commit. The message says what changed,
   why, and what was verified (commands run, emulator checks); call out removed or replaced
   behaviour.
+- PRs that change visuals should include videos or images of the change.
 - In this shared checkout stage only the files you own (`git add <paths>`), never `git add -A`.
   Don't amend, rebase, stash, or reset other agents' work.
 - Never commit secrets, `local.properties`, `google-services.json`, keystores, or private

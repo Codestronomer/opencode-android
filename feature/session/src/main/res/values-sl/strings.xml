@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">V teku</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Pokaži subagente in lupine v teku</string>
+    <string name="session_background_work_show_label">Pokaži subagente, skripte in lupine v teku</string>
     <string name="session_background_work_collapsed_description">Strnjeno</string>
     <string name="session_background_work_subagents_title">Subagenti</string>
     <string name="session_background_work_open_subagent_label">Odpri sejo subagenta</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Neznano</string>
     <string name="session_sheet_context_tokens">%1$s žetonov</string>
     <string name="session_sheet_cost">Strošek</string>
+    <string name="session_sheet_media">Predstavnost</string>
+    <string name="session_sheet_media_value">Datoteke in povezave</string>
     <string name="session_always_notify">Vedno obvesti</string>
     <string name="session_always_notify_message_phone">Obvesti ta telefon ob vsakem dokončanem odgovoru, tudi na sporočila, poslana od drugod.</string>
     <string name="session_always_notify_message_tablet">Obvesti to tablico ob vsakem dokončanem odgovoru, tudi na sporočila, poslana od drugod.</string>
@@ -213,7 +215,18 @@
         <item quantity="few">%1$d lupine</item>
         <item quantity="other">%1$d lupin</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d skripta</item>
+        <item quantity="two">%1$d skripti</item>
+        <item quantity="few">%1$d skripte</item>
+        <item quantity="other">%1$d skript</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Skripte</string>
+    <string name="session_background_work_stop_script_label">Ustavi skripto</string>
+    <string name="session_background_work_stop_subagent_label">Ustavi subagenta</string>
+    <string name="session_background_work_stop_script_failed">Skripte ni bilo mogoče ustaviti</string>
+    <string name="session_background_work_stop_subagent_failed">Subagenta ni bilo mogoče ustaviti</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Pošlji sporočilo</string>
@@ -318,4 +331,26 @@
     <string name="session_shell_stop_failed">Lupine ni bilo mogoče ustaviti</string>
     <string name="session_quote_remove_description">Odstrani citat</string>
     <string name="session_quote_comment_placeholder">Dodaj neobvezen komentar …</string>
+    <string name="session_media_title">Predstavnost seje</string>
+    <string name="session_media_filter_media">Predstavnost</string>
+    <string name="session_media_filter_files">Datoteke</string>
+    <string name="session_media_filter_links">Povezave</string>
+    <string name="session_media_layout_description">Postavitev predstavnosti</string>
+    <string name="session_media_layout_tiles">Ploščice</string>
+    <string name="session_media_layout_list">Seznam</string>
+    <string name="session_media_origin_user">Poslali ste vi</string>
+    <string name="session_media_origin_agent">Delil agent</string>
+    <string name="session_media_open_click_label">Odpri</string>
+    <string name="session_media_open_link_click_label">Odpri povezavo</string>
+    <string name="session_media_empty_media_title">Ni predstavnosti</string>
+    <string name="session_media_empty_media_message">Tukaj se prikažejo slike, videoposnetki in zvok, deljeni v tej seji.</string>
+    <string name="session_media_empty_files_title">Ni datotek</string>
+    <string name="session_media_empty_files_message">Tukaj se prikažejo dokumenti in prilepljeno besedilo iz te seje.</string>
+    <string name="session_media_empty_links_title">Ni povezav</string>
+    <string name="session_media_empty_links_message">Spletne povezave, deljene v tej seji, se prikažejo tukaj.</string>
+    <string name="session_media_earlier_note">Prejšnja sporočila še niso naložena.</string>
+    <string name="session_media_load_earlier">Naloži prejšnja sporočila</string>
+    <string name="session_media_loading_earlier">Nalaganje…</string>
+    <string name="session_media_earlier_failed">Prejšnjih sporočil ni bilo mogoče naložiti. Preverite povezavo in poskusite znova.</string>
+    <string name="session_media_earlier_nothing_new">V pravkar naloženih sporočilih ni nič novega. Morda je več v prejšnjih.</string>
 </resources>

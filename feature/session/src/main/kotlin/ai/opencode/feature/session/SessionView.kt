@@ -4,6 +4,7 @@ package ai.opencode.feature.session
 
 import ai.opencode.core.strings.localized
 import ai.opencode.core.R as CoreR
+import ai.opencode.core.ui.OpenCodeButtonMenu
 import ai.opencode.core.ui.OpenCodeContentUnavailable
 import ai.opencode.core.ui.inContainer
 import ai.opencode.feature.composer.composerWindowTouches
@@ -25,9 +26,6 @@ import ai.opencode.core.ui.SFSymbol
 import ai.opencode.feature.composer.AttachmentMenuDismissArea
 import ai.opencode.feature.composer.ComposerDismissTarget
 import ai.opencode.feature.composer.AttachmentMenuItem
-import ai.opencode.feature.composer.AttachmentMenuMeasure
-import ai.opencode.feature.composer.AttachmentMenuPhase
-import ai.opencode.feature.composer.AttachmentMenuPress
 import ai.opencode.feature.composer.AttachmentPickerButton
 import ai.opencode.feature.composer.ComposerAutocompleteAction
 import ai.opencode.feature.composer.ComposerPhotoViewer
@@ -38,7 +36,6 @@ import ai.opencode.feature.composer.PastedTextViewer
 import ai.opencode.feature.composer.RequestDockContext
 import ai.opencode.feature.composer.RequestReviewSheet
 import ai.opencode.feature.composer.composerKeyboardStepHold
-import ai.opencode.feature.composer.plusmenu.PlusMenuGlassSurface
 import ai.opencode.feature.media.LocalMediaPresenter
 import ai.opencode.feature.media.MediaPresenter
 import ai.opencode.feature.media.FullscreenViewer
@@ -59,6 +56,14 @@ import ai.opencode.feature.voice.holdsClientToolCard
 import ai.opencode.server.model.OpenCodeSession
 import ai.opencode.server.model.OpenCodeShell
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalView
+import ai.opencode.feature.composer.EscapeHandler
+import ai.opencode.core.ui.accessibilityFocusTarget
+import ai.opencode.core.ui.AccessibilityFocusTarget
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.mutableLongStateOf
+import android.os.SystemClock
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
@@ -202,6 +207,7 @@ fun SessionView(
         SessionCallTasks(store, callStore, hasCall = ownsCall || hostedCall != null, isCatchUpCard = onCatchUpOpen != null)
     }
     val isCovered by store.observe { it.isCovered }
+    val isTranscriptCovered by store.observe { it.isTranscriptCovered }
     // iOS `floatingCallCoverage(sessionLifecycle)`: what the Living Orb's card covers gives way.
     if (!isInertPreview) {
         SessionFloatingCallCoverage(store, callStore, composerHost, attachmentMenu)
@@ -216,7 +222,7 @@ fun SessionView(
         // Closing the + menu mustn't bring the keyboard back.
         attachmentMenu.attachmentMenuRestoresFocus = false
         showsBackgroundWork = false
-        if (attachmentMenu.attachmentMenu != AttachmentMenuPhase.Closed) attachmentMenu.closeAttachmentMenu()
+        attachmentMenu.closeAttachmentMenu()
         composerHost.modelPanels?.closeModelPanels()
     }
 
@@ -232,6 +238,7 @@ fun SessionView(
     val agentScope by store.observe { "${it.server.persistenceID}|${it.session?.id ?: "draft"}" }
     val errorMessage by store.observe { it.errorMessage }
     val identity by store.observe { it.transcriptIdentity }
+    val showsSessionMedia by store.observe { it.sessionMediaFilter != null }
     // Read in composition, not in the SideEffect: SideEffect reads aren't observed, so an import
     // finishing would leave the host's copy stale.
     val isImportingImages = importer.isLoadingImages
@@ -271,6 +278,10 @@ fun SessionView(
             sessionID = work.sessionID,
             agents = work.agents,
             shells = work.shells,
+            scripts = work.scripts,
+            onStopScript = { store.send(Action.BackgroundScriptStopTapped(it)) },
+            onStopSubagent = { store.send(Action.BackgroundSubagentStopTapped(it)) },
+            stoppingIDs = work.stoppingIDs,
             waitingSessionIDs = work.waitingSessionIDs,
             probe = work.probe,
             isPresented = showsBackgroundWork,
@@ -278,13 +289,14 @@ fun SessionView(
             onOpenSubagent = { store.send(Action.SubagentTapped(it)) },
             onOpenShell = { store.send(Action.ShellOutputTapped(it)) },
             isCovered = composerHost.composerPanelCovers,
+            isPaused = isTranscriptCovered,
             inCall = work.inCall,
             transcript = scrollEdgeBridge.borrowedDrag,
             // The capsule draws above the + menu's dismiss area: tapping it closes the menu.
             // iOS: typing ends, and the capsule draws above the menu's dismiss area: tapping it closes the menu.
             onToggle = {
                 composerHost.dismissComposerKeyboard()
-                if (attachmentMenu.attachmentMenu != AttachmentMenuPhase.Closed) attachmentMenu.closeAttachmentMenu()
+                attachmentMenu.closeAttachmentMenu()
             },
             // TalkBack reads the header, then the transcript, then the background-work capsule, then
             // the composer, as VoiceOver reads iOS's top overlay first and the rest top to bottom: the
@@ -292,11 +304,10 @@ fun SessionView(
             // presentation's, not the screen's, so the capsule drawn over the screen sits in it by
             // its place above the composer (iOS `SessionView+Composer.swift:209-241`), not after
             // everything (QA AB-02).
-            // iOS: the + menu is an `.isModal` container in its own window, so VoiceOver reaches
-            // nothing beneath it. TalkBack has no modal, so the screen under it (the + too) hides.
+            // The screen leaves the accessibility tree while Session Media covers it.
             modifier = Modifier
                 .semantics { isTraversalGroup = true }
-                .then(if (attachmentMenu.plusMenuIsOpen) Modifier.clearAndSetSemantics {} else Modifier),
+                .then(if (showsSessionMedia) Modifier.clearAndSetSemantics {} else Modifier),
         ) {
             Box(Modifier.fillMaxSize().background(colors.canvas)) {
                 ComposedAfterComposer {
@@ -403,6 +414,7 @@ fun SessionView(
         }
         if (!isInertPreview) {
             SessionAttachmentMenu(store, composerHost, importer, attachmentMenu)
+            SessionMediaPage(store, Modifier.matchParentSize())
         }
         }
         if (!isInertPreview) {
@@ -465,6 +477,8 @@ private data class BackgroundWorkModel(
     val sessionID: String?,
     val agents: List<OpenCodeSession>,
     val shells: List<OpenCodeShell>,
+    val scripts: List<BackgroundScript>,
+    val stoppingIDs: Set<String>,
     val waitingSessionIDs: Set<String>,
     val probe: ShellGlyphProbe?,
     val inCall: Boolean,
@@ -474,6 +488,8 @@ private data class BackgroundWorkModel(
             sessionID = state.session?.id,
             agents = state.activeSubagents,
             shells = state.backgroundShells,
+            scripts = state.backgroundScripts,
+            stoppingIDs = state.stoppingIDs,
             waitingSessionIDs = state.waitingSessionIDs,
             probe = state.shellGlyphProbe,
             inCall = state.voice != null,
@@ -481,18 +497,6 @@ private data class BackgroundWorkModel(
     }
 }
 
-/**
- * The + menu (iOS `attachmentMenuOverlay`, `toggleAttachmentMenu` and `chooseAttachment`) and what
- * it opens: Photos (the system photo picker), Files (the system document picker) and Location (one at a time). The menu is
- * :feature:composer's [PlusMenuGlassSurface] (measured by [AttachmentMenuMeasure]), growing out of the + ([AttachmentPickerButton] in
- * the composer's row, which also chooses a row by sliding to it); it keeps the field's focus, and
- * choosing a picker gives the keyboard up, which returns once something is attached if the field
- * had it. System Back closes it (iOS's escape action).
- *
- * Camera (when the device has one) opens the composer's full-screen [AttachmentCameraView]
- * ([SessionAttachmentCamera]); Paste (while the clipboard holds an image, checked as the menu
- * opens) attaches the clipboard's images through `PasteboardClient` and brings the keyboard back.
- */
 /** iOS `OrbClearanceGeometry`: the composer's frame in the window, in dp, for where the orb rests. */
 private class OrbClearanceGeometry {
     var composer by mutableStateOf(Rect.Zero)
@@ -538,6 +542,15 @@ private fun Modifier.orbClearancePadding(host: SessionComposerHost): Modifier = 
     layout(placeable.width, height) { placeable.place(0, top) }
 }
 
+/**
+ * The + menu (iOS `attachmentMenuOverlay`, `toggleAttachmentMenu` and `chooseAttachment`) and what
+ * it opens: Photos (the system photo picker), Files (the system document picker), Location (one at
+ * a time), Camera (when the device has one, the composer's full-screen [AttachmentCameraView]) and
+ * Paste (while the clipboard holds an image, checked as the menu opens). The menu is a dropdown
+ * hanging from the + ([SessionAttachmentDropdown]). It doesn't take focus, so the keyboard stays up
+ * while it's open; choosing a picker gives the keyboard up, which returns once something is
+ * attached if the field had it.
+ */
 @Composable
 private fun SessionAttachmentMenu(
     store: StoreOf<State, Action>,
@@ -545,18 +558,13 @@ private fun SessionAttachmentMenu(
     importer: SessionAttachmentImporter,
     menu: SessionAttachmentMenuState,
 ) {
-    val phase = menu.attachmentMenu
-    var keepingLocationRow by remember { mutableStateOf(false) }
+    val isOpen = menu.plusMenuIsOpen
     var showsCamera by remember { mutableStateOf(false) }
-    var clipboardHasImages by remember { mutableStateOf(false) }
     val pasteboard = remember { dependency(ai.opencode.core.dependencies.PasteboardClient) }
-    val packageManager = androidx.compose.ui.platform.LocalContext.current.packageManager
-    val hasCamera = remember(packageManager) { packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY) }
+    var opened by remember { mutableIntStateOf(0) }
     var tapped by remember { mutableIntStateOf(0) }
-    val press = remember { AttachmentMenuPress() }
+    var dismissedAt by remember { mutableLongStateOf(0L) }
     val taskIdentity by store.observe { it.taskIdentity }
-    val supportsFileUploads by store.observe { it.supportsFileUploads }
-    val wantsLocation by store.observe { it.pendingLocation != null || it.isLocating }
     val hasPendingRequests by store.observe { it.hasPendingRequests }
     val dictating by store.observe { it.isPreparingDictation || it.isDictating || it.dictationHold != null }
     val files = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -573,18 +581,18 @@ private fun SessionAttachmentMenu(
         shownIdentity = taskIdentity
         importer.cancelImageImport()
         menu.attachmentMenuRestoresFocus = false
-        press.cancelled()
-        menu.attachmentMenu = AttachmentMenuPhase.Closed
+        menu.closeAttachmentMenu()
     }
+    HapticEffect(Haptic.lightTap, opened)
     HapticEffect(Haptic.tap, tapped)
 
     // iOS `onChange(of: attachmentMenu)`: closed some other way, the keyboard comes back if the
     // menu kept it.
-    var previousPhase by remember { mutableStateOf(phase) }
-    LaunchedEffect(phase) {
-        if (phase == previousPhase) return@LaunchedEffect
-        previousPhase = phase
-        if (phase != AttachmentMenuPhase.Closed) return@LaunchedEffect
+    var wasOpen by remember { mutableStateOf(isOpen) }
+    LaunchedEffect(isOpen) {
+        if (isOpen == wasOpen) return@LaunchedEffect
+        wasOpen = isOpen
+        if (isOpen) return@LaunchedEffect
         if (!menu.attachmentMenuRestoresFocus) return@LaunchedEffect
         menu.attachmentMenuRestoresFocus = false
         host.focusComposer()
@@ -592,114 +600,119 @@ private fun SessionAttachmentMenu(
     // iOS `onChange(of: messageFieldFocused)`: typing takes the menu's place.
     val focused = host.messageFieldFocused
     LaunchedEffect(focused) {
-        if (!focused || menu.attachmentMenu == AttachmentMenuPhase.Closed) return@LaunchedEffect
+        if (!focused || !menu.plusMenuIsOpen) return@LaunchedEffect
         menu.attachmentMenuRestoresFocus = false
         menu.closeAttachmentMenu()
     }
     // A pending request's dock takes the composer's place; dictation takes the composer.
-    LaunchedEffect(hasPendingRequests) { if (hasPendingRequests) menu.attachmentMenu = AttachmentMenuPhase.Closed }
+    LaunchedEffect(hasPendingRequests) { if (hasPendingRequests) menu.closeAttachmentMenu() }
     LaunchedEffect(dictating) {
-        if (!dictating || menu.attachmentMenu == AttachmentMenuPhase.Closed) return@LaunchedEffect
+        if (!dictating || !menu.plusMenuIsOpen) return@LaunchedEffect
         menu.attachmentMenuRestoresFocus = false
         menu.closeAttachmentMenu()
     }
 
     fun toggle() {
-        if (phase == AttachmentMenuPhase.Closed) {
-            keepingLocationRow = false
-            menu.attachmentMenuRestoresFocus = host.messageFieldFocused
-            clipboardHasImages = pasteboard.hasImages()
-            menu.attachmentMenu = AttachmentMenuPhase.Menu
-            press.menuOpened()
-        } else {
+        if (menu.plusMenuIsOpen) {
             menu.closeAttachmentMenu()
+            return
         }
+        // A tap on the × already closed the menu as a tap outside it.
+        if (SystemClock.uptimeMillis() - dismissedAt < 500) return
+        menu.keepingLocationRow = false
+        menu.attachmentMenuRestoresFocus = host.messageFieldFocused
+        menu.clipboardHasImages = pasteboard.hasImages()
+        menu.plusMenuIsOpen = true
+        opened += 1
+    }
+
+    fun dismiss() {
+        dismissedAt = SystemClock.uptimeMillis()
+        menu.closeAttachmentMenu()
     }
 
     fun choose(item: AttachmentMenuItem) {
-        if (phase != AttachmentMenuPhase.Menu) return
+        if (!menu.plusMenuIsOpen) return
+        // iOS `pasteAttachments`: the keyboard comes back as the menu closes.
+        if (item == AttachmentMenuItem.Paste) {
+            menu.attachmentMenuRestoresFocus = true
+            importer.pasteClipboardImages()
+            menu.closeAttachmentMenu()
+            return
+        }
+        tapped += 1
+        menu.attachmentMenuRestoresFocus = false
         when (item) {
             AttachmentMenuItem.Photos -> {
-                menu.attachmentMenuRestoresFocus = false
                 menu.closeAttachmentMenu()
                 photos.launch(
                     ComposerPickers.photosIntent(
                         maxItems = AttachmentPickerButton.MAX_PHOTO_SELECTION,
-                        includesVideos = supportsFileUploads,
+                        includesVideos = store.state.supportsFileUploads,
                     ),
                 )
             }
             AttachmentMenuItem.Files -> {
-                menu.attachmentMenuRestoresFocus = false
                 menu.closeAttachmentMenu()
                 files.launch(arrayOf("*/*"))
             }
             AttachmentMenuItem.Location -> {
-                menu.attachmentMenuRestoresFocus = false
-                keepingLocationRow = true
+                menu.keepingLocationRow = true
                 store.send(Action.locationTapped)
                 menu.closeAttachmentMenu()
             }
             AttachmentMenuItem.Camera -> {
-                menu.attachmentMenuRestoresFocus = false
                 showsCamera = true
                 menu.closeAttachmentMenu()
             }
-            // A paste control: tapped only (`onPaste`), never chosen by a slide.
             AttachmentMenuItem.Paste -> Unit
         }
     }
 
     SideEffect {
-        host.attachmentPress = press
-        host.isAttachmentMenuOpen = phase != AttachmentMenuPhase.Closed
+        host.isAttachmentMenuOpen = isOpen
         host.onPlusTapped = ::toggle
-        host.attachmentMenuRows = if (phase == AttachmentMenuPhase.Menu) host.attachmentAnchors.rows else emptyMap()
-        // A slide from + chose it; the press already answered with its haptic.
-        host.onAttachmentChoose = ::choose
-        host.closeAttachmentMenu = { if (menu.attachmentMenu != AttachmentMenuPhase.Closed) menu.closeAttachmentMenu() }
+        host.attachmentDropdown = { SessionAttachmentDropdown(store, menu, onChoose = ::choose, onDismiss = ::dismiss) }
+        host.closeAttachmentMenu = { menu.closeAttachmentMenu() }
     }
-    // System Back (iOS's escape action) closes the menu.
-    BackHandler(enabled = phase != AttachmentMenuPhase.Closed) { menu.closeAttachmentMenu() }
+    // Not focusable, the menu gets neither Back nor a hardware Escape: both close it here.
+    BackHandler(enabled = isOpen) { menu.closeAttachmentMenu() }
+    EscapeHandler(enabled = isOpen) { menu.closeAttachmentMenu() }
+    if (showsCamera) {
+        SessionAttachmentCamera(importer, onDismiss = { showsCamera = false }, onAdded = host::focusComposer)
+    }
+}
 
+/** The + menu's rows, hanging from the + button. */
+@Composable
+private fun SessionAttachmentDropdown(
+    store: StoreOf<State, Action>,
+    menu: SessionAttachmentMenuState,
+    onChoose: (AttachmentMenuItem) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val expanded = menu.plusMenuIsOpen
+    val supportsFileUploads by store.observe { it.supportsFileUploads }
+    val wantsLocation by store.observe { it.pendingLocation != null || it.isLocating }
+    val packageManager = LocalContext.current.packageManager
+    val hasCamera = remember(packageManager) { packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
     val items = sessionAttachmentMenuItems(
         hasCamera = hasCamera,
         supportsFileUploads = supportsFileUploads,
         wantsLocationAttachment = wantsLocation,
-        keepingLocationRowWhileMenuCloses = keepingLocationRow,
-        clipboardHasImages = clipboardHasImages,
+        keepingLocationRowWhileMenuCloses = menu.keepingLocationRow,
+        clipboardHasImages = menu.clipboardHasImages,
     )
-    val chooseTapped = { item: AttachmentMenuItem ->
-        tapped += 1
-        choose(item)
-    }
-    // iOS `pasteAttachments`: the keyboard comes back as the menu closes.
-    val paste = {
-        if (phase == AttachmentMenuPhase.Menu) {
-            menu.attachmentMenuRestoresFocus = true
-            importer.pasteClipboardImages()
-            menu.closeAttachmentMenu()
+    val hostView = LocalView.current
+    val firstRow = remember { AccessibilityFocusTarget() }
+    MenuReturnsTalkBackFocus(expanded, menu.plusButton)
+    OpenCodeButtonMenu(expanded, onDismiss, Modifier.testTag("attachment-menu")) {
+        MenuTakesTalkBackFocus(hostView, expanded, firstRow)
+        for ((index, item) in items.withIndex()) {
+            var rowModifier = Modifier.testTag("attachment-menu-${item.name.lowercase()}")
+            if (index == 0) rowModifier = rowModifier.accessibilityFocusTarget(firstRow)
+            MenuItem(item.title, item.systemImage, rowModifier) { onChoose(item) }
         }
-    }
-    // iOS `AttachmentMenuMeasure`: the rows are measured and anchored here and drawn by
-    // `PlusMenuGlassSurface`, over the composer.
-    AttachmentMenuMeasure(anchors = host.attachmentAnchors, items = items, modifier = Modifier.fillMaxSize())
-    // At rest its full-screen layers would still take TalkBack's touch over the header and
-    // transcript beneath them (iOS `.accessibilityHidden(plusMenuRests)`).
-    Box(Modifier.fillMaxSize().then(if (phase == AttachmentMenuPhase.Closed) Modifier.clearAndSetSemantics {} else Modifier)) {
-        PlusMenuGlassSurface(
-            anchors = host.attachmentAnchors,
-            isOpen = menu.plusMenuIsOpen,
-            items = items,
-            highlighted = press.highlighted,
-            onChoose = chooseTapped,
-            onPaste = paste,
-            onDismiss = { menu.closeAttachmentMenu() },
-            modifier = Modifier.fillMaxSize(),
-        )
-    }
-    if (showsCamera) {
-        SessionAttachmentCamera(importer, onDismiss = { showsCamera = false }, onAdded = host::focusComposer)
     }
 }
 
@@ -971,6 +984,7 @@ private fun SessionSheets(store: StoreOf<State, Action>, listContext: SessionLis
                 context = listContext,
                 details = details,
                 onModelTapped = { store.send(Action.ModelButtonTapped) },
+                onMediaTapped = { store.send(Action.SessionMediaTapped) },
                 onDismissRequest = dismiss,
                 providerIcon = { providerID, canonical, size -> ProviderIcon(providerID, Modifier.size(size), canonical) },
                 statusOrb = { status, size ->

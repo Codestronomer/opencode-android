@@ -3,7 +3,7 @@
     <!-- Agent activity glyph -->
     <string name="session_activity_running_description">Se execută</string>
     <!-- Background work panel -->
-    <string name="session_background_work_show_label">Arată subagenții și shell-urile în execuție</string>
+    <string name="session_background_work_show_label">Arată subagenții, scripturile și shell-urile în execuție</string>
     <string name="session_background_work_collapsed_description">Restrâns</string>
     <string name="session_background_work_subagents_title">Subagenți</string>
     <string name="session_background_work_open_subagent_label">Deschide sesiunea subagentului</string>
@@ -70,6 +70,8 @@
     <string name="session_sheet_unknown_description">Necunoscut</string>
     <string name="session_sheet_context_tokens">%1$s tokeni</string>
     <string name="session_sheet_cost">Cost</string>
+    <string name="session_sheet_media">Media</string>
+    <string name="session_sheet_media_value">Fișiere și linkuri</string>
     <string name="session_always_notify">Notifică mereu</string>
     <string name="session_always_notify_message_phone">Primește notificări pe acest telefon când un răspuns e gata, chiar și pentru mesajele trimise de pe alt dispozitiv.</string>
     <string name="session_always_notify_message_tablet">Primește notificări pe această tabletă când un răspuns e gata, chiar și pentru mesajele trimise de pe alt dispozitiv.</string>
@@ -206,7 +208,17 @@
         <item quantity="few">%1$d shell-uri</item>
         <item quantity="other">%1$d de shell-uri</item>
     </plurals>
+    <plurals name="session_background_work_script_count">
+        <item quantity="one">%1$d script</item>
+        <item quantity="few">%1$d scripturi</item>
+        <item quantity="other">%1$d de scripturi</item>
+    </plurals>
     <string name="session_background_work_summary">%1$s · %2$s</string>
+    <string name="session_background_work_scripts_title">Scripturi</string>
+    <string name="session_background_work_stop_script_label">Oprește scriptul</string>
+    <string name="session_background_work_stop_subagent_label">Oprește subagentul</string>
+    <string name="session_background_work_stop_script_failed">Nu s-a putut opri scriptul</string>
+    <string name="session_background_work_stop_subagent_failed">Nu s-a putut opri subagentul</string>
 
     <!-- Composer buttons -->
     <string name="session_send_message_description">Trimite mesajul</string>
@@ -307,4 +319,26 @@
     <string name="session_shell_stop_failed">Nu s-a putut opri shell-ul</string>
     <string name="session_quote_remove_description">Elimină citatul</string>
     <string name="session_quote_comment_placeholder">Adaugă un comentariu opțional…</string>
+    <string name="session_media_title">Media din sesiune</string>
+    <string name="session_media_filter_media">Media</string>
+    <string name="session_media_filter_files">Fișiere</string>
+    <string name="session_media_filter_links">Linkuri</string>
+    <string name="session_media_layout_description">Aspectul conținutului media</string>
+    <string name="session_media_layout_tiles">Butoane rapide</string>
+    <string name="session_media_layout_list">Listă</string>
+    <string name="session_media_origin_user">Trimis de tine</string>
+    <string name="session_media_origin_agent">Distribuit de agent</string>
+    <string name="session_media_open_click_label">Deschide</string>
+    <string name="session_media_open_link_click_label">Deschide linkul</string>
+    <string name="session_media_empty_media_title">Niciun conținut media</string>
+    <string name="session_media_empty_media_message">Imaginile, videoclipurile și fișierele audio distribuite în această sesiune apar aici.</string>
+    <string name="session_media_empty_files_title">Niciun fișier</string>
+    <string name="session_media_empty_files_message">Documentele și textul lipit din această sesiune apar aici.</string>
+    <string name="session_media_empty_links_title">Niciun link</string>
+    <string name="session_media_empty_links_message">Linkurile web distribuite în această sesiune apar aici.</string>
+    <string name="session_media_earlier_note">Mesajele anterioare nu sunt încărcate încă.</string>
+    <string name="session_media_load_earlier">Încarcă mesajele anterioare</string>
+    <string name="session_media_loading_earlier">Se încarcă…</string>
+    <string name="session_media_earlier_failed">Mesajele anterioare nu s-au putut încărca. Verifică conexiunea și încearcă din nou.</string>
+    <string name="session_media_earlier_nothing_new">Nimic nou în mesajele tocmai încărcate. Cele anterioare ar putea avea mai mult.</string>
 </resources>

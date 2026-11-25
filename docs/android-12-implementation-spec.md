@@ -413,3 +413,20 @@ drove the paths the fixes changed:
 - Not covered by this pass: Catch Up drift, onboarding's SignalField (needs first run),
   and the dictation download/hash (the 188 MB model was not re-downloaded on the
   storage-constrained device).
+
+### Post-merge device QA (dev @ 7cbefbf3 merged, Galaxy S10+ / API 31)
+
+Installed the merged build over wireless ADB and re-ran the smoke checks:
+
+- App launched into the session with no crash; `shader-gl` alive, zero `gl_*` errors.
+- Settings › Language opened with System Default selected (the C1 path) and the full
+  56-language list — no crash after the Compose 1.13 / OpenMono / WorkManager merge.
+- The Settings connection card's ConnectionScope rendered the lit-dot EKG trace through
+  the GL path, correctly oriented (the merged `renderPersisted` path).
+- Settings with the scope animating: 584 frames over 10 s, 7.2% janky, 20 ms median
+  (vs 0.33% / 13 ms in the pre-merge run; the difference is within the merged tree's
+  noise — Compose 1.13 and the live connection stats — and stays under the 16.7 ms
+  budget at the median for most frames).
+- Not re-covered here: the call orb (needs a call), Catch Up drift (needs an unread
+  queue), onboarding's SignalField (needs first run), dictation (the 188 MB model is
+  not installed on this device).

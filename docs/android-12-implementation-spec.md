@@ -430,3 +430,37 @@ Installed the merged build over wireless ADB and re-ran the smoke checks:
 - Not re-covered here: the call orb (needs a call), Catch Up drift (needs an unread
   queue), onboarding's SignalField (needs first run), dictation (the 188 MB model is
   not installed on this device).
+
+### Full test pass (merged build, Galaxy S10+ / Android 12, 2026-11-25)
+
+Ran the full gate and an end-to-end device pass on the merged tree (`android-12` @
+`5e526530`, dev @ `7cbefbf3`):
+
+**Automated:** `scripts/check.sh` green (assemble + lint + every module's unit tests), then
+`testDebugUnitTest`/`lintDebug` re-run with `--rerun-tasks` (8m12s): all 12 modules' tests
+and lint passed non-incrementally.
+
+**Device, in order:**
+1. Launch: session restore, connected server, zero crashes.
+2. Settings: Appearance, Sessions, Models, Voice, What's New, Experimental and Developer
+   each opened and returned; process PID stayed constant, crash buffer empty.
+3. Language: switched to Deutsch (activity recreated localized), System Default still
+   read *English (United States)*, switched back — no crash, 56 languages listed.
+4. ConnectionScope: lit-dot EKG trace through GL, correct orientation.
+5. Call: started from the drawer's call button, orb rendered docked then expanded;
+   sheet with drawer closed measured 29 ms median / 36.6% janky; ended cleanly with the
+   red End control (no call controls left, no GL errors).
+6. Dictation: a press started a hands-free session (92.3 s recorded), the DotScope meter
+   rendered through GL, the session ended with insert and no errors. The installed model's
+   three ONNX digests were checked against the pinned revision's values and match exactly.
+7. Media viewer: opened a transcript tool image; an edge swipe dismissed it, a mid-screen
+   horizontal drag did not, and two long-swipe retries returned to the session (no
+   double-back). Synthetic `input swipe` produces fling-like velocities, so the
+   distance-cancel branch can't be exercised from adb; it was verified by hand earlier.
+8. Stability: no crash entries, no ANR, PID stable across all steps, `shader-gl` alive,
+   zero `gl_*` error logs.
+
+**Not covered:** live transcription accuracy (no speech input), Catch Up's drift field
+(no unread catch-up queue on the device), onboarding's SignalField (needs a first run),
+and the download-time hash path (the install-time digests were verified on disk instead,
+which validates the constants themselves).

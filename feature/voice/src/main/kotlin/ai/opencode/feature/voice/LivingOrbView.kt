@@ -313,15 +313,15 @@ class WispOrbRenderer private constructor() {
     }
 }
 
+/** The bloom layer's GL render scale; its dot geometry is resolution-independent. */
+private const val BLOOM_RENDER_SCALE = 0.5f
+
 /**
  * The orb's raster, one per API level: the AGSL pass on 33+, on Android 12 the same maths ported
  * to GLSL ES 3.0 and rendered off-screen by the shared GLES context ([Gl]) — the CPU kernel's
  * cells upload as a texture the ported pass samples at the two texels per LED — and the Canvas
  * approximation ([CanvasLens]) only if GLES is unusable.
  */
-/** The bloom layer's GL render scale; its dot geometry is resolution-independent. */
-private const val BLOOM_RENDER_SCALE = 0.5f
-
 private class WispOrbRaster {
     fun close() {
         renderer.close()
@@ -476,7 +476,7 @@ private class WispOrbRaster {
 
         override fun DrawScope.draw(factor: Float) {
             if (texture == 0 || data.isEmpty()) {
-                with(canvas) { draw(factor) }
+                drawFallback(factor)
                 return
             }
             val width = ceil(size.width).toInt()
@@ -495,12 +495,24 @@ private class WispOrbRaster {
                 GLES30.glUniform2f(gl.location("uSize"), renderWidth.toFloat(), renderHeight.toFloat())
             }
             if (frame == null) {
-                with(canvas) { draw(factor) }
+                drawFallback(factor)
             } else {
                 // The readback's rows run bottom-up; the transform lands them upright.
                 scale(1f, -1f, pivot = Offset(width / 2f, height / 2f)) {
                     drawImage(frame.asImageBitmap(), dstSize = IntSize(width, height))
                 }
+            }
+        }
+
+        /**
+         * The Canvas path reads the published uniforms, which are built for the (possibly
+         * reduced) render target; it draws in that smaller space and is scaled back here.
+         */
+        private fun DrawScope.drawFallback(factor: Float) {
+            if (factor == 1f) {
+                with(canvas) { draw(factor) }
+            } else {
+                scale(1f / factor, 1f / factor, pivot = Offset.Zero) { with(canvas) { draw(factor) } }
             }
         }
     }

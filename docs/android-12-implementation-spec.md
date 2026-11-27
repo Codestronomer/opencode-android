@@ -409,7 +409,9 @@ drove the paths the fixes changed:
   factor and the bitmap stretched by the flipped draw (`276552ac`); the same screen then
   measured 29 ms / 22% janky. A plain session measured 29 ms under live streaming, so
   the orb is no longer the bottleneck there; the remaining cost is the transcript
-  window on this 2019 device at 560 dpi.
+  window on this 2019 device at 560 dpi. The jank percentage varies run to run at the
+  same median (22–37% with the same 29 ms, depending on whether the session is
+  streaming and call audio is live); the median is the stable comparison.
 - Not covered by this pass: Catch Up drift, onboarding's SignalField (needs first run),
   and the dictation download/hash (the 188 MB model was not re-downloaded on the
   storage-constrained device).
@@ -464,3 +466,21 @@ and lint passed non-incrementally.
 (no unread catch-up queue on the device), onboarding's SignalField (needs a first run),
 and the download-time hash path (the install-time digests were verified on disk instead,
 which validates the constants themselves).
+
+### Review follow-up: Canvas bloom fallback (2026-11-27)
+
+The follow-up review found one Important bug in the half-resolution bloom change: when
+GL becomes unusable mid-session, `Gl.draw` falls back to `CanvasLens`, but the uniforms
+it had just published were built for the half-size render target (centre, pixels per
+point and clip rects all scaled by 0.5), so the expanded call sheet's bloom drew at 50 %
+scale offset toward the top-left. The fallback now draws through
+`scale(1 / factor, 1 / factor, pivot = Offset.Zero)`, which restores the same geometry
+the uniforms describe (all Canvas geometry and the mute ring already scale with
+`ppp`). The class KDoc that the scale constant had displaced is back on
+`WispOrbRaster`, and two garbled joins carried in from upstream's parity table are
+fixed.
+
+Advisories left as designed: a GL failure is process-wide (the point of the I5 fix —
+fail fast to Canvas rather than hang); `GlPass.close()` blocking on disposal is
+latency-only; non-English dictation on 12 still ends at `LocaleUnsupported` when the
+platform recognizer has no such language, which is the product's existing behaviour.

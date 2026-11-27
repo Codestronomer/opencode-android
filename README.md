@@ -20,7 +20,7 @@ Release) arrives as a Play update. Details in [docs/releasing.md](docs/releasing
 
 **Sideload instead:** every push to `dev` builds a debug APK and publishes it as the rolling
 [`dev-latest` pre-release](https://github.com/anomalyco/opencode-android/releases/tag/dev-latest).
-It runs on Android 13 or newer.
+It runs on Android 12 or newer (this fork lowers the original Android 13 floor; see docs/android-12-support.md).
 
 1. On your phone, open
    [opencode-android.apk](https://github.com/anomalyco/opencode-android/releases/download/dev-latest/opencode-android.apk).

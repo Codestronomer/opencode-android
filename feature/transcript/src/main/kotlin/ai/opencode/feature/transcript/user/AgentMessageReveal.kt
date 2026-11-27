@@ -1,12 +1,20 @@
 package ai.opencode.feature.transcript.user
 
+import ai.opencode.core.log.AppLog
+import ai.opencode.core.ui.gl.GlPass
 import ai.opencode.core.motion.rememberReduceMotion
 import ai.opencode.core.ui.OpenCodeTheme
 import ai.opencode.feature.media.TranscriptMetrics
 import ai.opencode.feature.transcript.TranscriptTunables
+import android.graphics.BlurMaskFilter
+import android.graphics.Paint
 import android.graphics.RuntimeShader
+import android.opengl.GLES30
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,10 +25,16 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.dp
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -151,6 +165,64 @@ half4 main(float2 position) {
 """
 
 /**
+ * The pass above ported to GLSL ES 3.0 for Android 12 (docs/android-12-support.md §10.2):
+ * identical maths, renamed types, and the entry point reads `gl_FragCoord` with the Y
+ * flipped to the AGSL's top-left origin. The output stays premultiplied.
+ */
+private const val AGENT_REVEAL_GLOW_GLSL = """
+#version 300 es
+precision highp float;
+
+uniform vec2 size;
+uniform vec4 radii;
+uniform float density;
+uniform vec4 liftIn;
+uniform vec4 glowIn;
+uniform float fillLift;
+uniform float innerGlow;
+
+out vec4 fragColor;
+
+vec4 glow(vec2 position) {
+  if ((fillLift <= 1e-4 && innerGlow <= 1e-4) || size.x <= 0.0 || size.y <= 0.0) {
+    return vec4(0.0);
+  }
+  vec2 sizePt = size / density;
+  vec2 halfSize = sizePt * 0.5;
+  vec2 p = position / density - halfSize;
+  float r = p.x > 0.0 ? (p.y > 0.0 ? radii.w : radii.z) : (p.y > 0.0 ? radii.y : radii.x);
+  r = min(r, min(halfSize.x, halfSize.y));
+  vec2 q = abs(p) - halfSize + r;
+  vec2 qPos = max(q, 0.0);
+  float cornerDist = r > 1e-3
+    ? pow(pow(qPos.x / r, 2.4) + pow(qPos.y / r, 2.4), 1.0 / 2.4) * r
+    : length(qPos);
+  float sd = min(max(q.x, q.y), 0.0) + cornerDist - r;
+  if (sd >= 0.5) {
+    return vec4(0.0);
+  }
+  float edgeMask = clamp(0.5 - sd, 0.0, 1.0);
+  float depth = max(0.0, -sd);
+
+  float aLift = clamp(fillLift, 0.0, 1.0);
+  vec3 premul = liftIn.rgb * aLift;
+  float alpha = aLift;
+
+  float shoulder = 1.0 - 0.24 * exp(-depth * depth / 5.5);
+  float aGlow = clamp(innerGlow * shoulder * exp(-depth / 7.0), 0.0, 1.0);
+  premul = premul * (1.0 - aGlow) + glowIn.rgb * aGlow;
+  alpha = alpha * (1.0 - aGlow) + aGlow;
+
+  return vec4(premul * edgeMask, alpha * edgeMask);
+}
+
+void main() {
+  vec2 position = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y);
+  fragColor = glow(position);
+}
+"""
+
+/**
  * The light inside the bubble: its fill lifted, and an edge glowing inward. Fills its parent;
  * clipped to the run's corners.
  */
@@ -158,6 +230,7 @@ half4 main(float2 position) {
 fun AgentMessageRevealLight(light: Double, corners: UserSurfaceCorners = UserSurfaceCorners.round, modifier: Modifier = Modifier) {
     val dark = OpenCodeTheme.colors.isDark
     val glow = remember { AgentRevealGlow() }
+    DisposableEffect(glow) { onDispose { glow.close() } }
     Box(
         modifier
             .clip(corners.shape(TranscriptMetrics.bubbleCornerRadius))
@@ -165,24 +238,142 @@ fun AgentMessageRevealLight(light: Double, corners: UserSurfaceCorners = UserSur
     )
 }
 
-/** The reveal light's shader, drawn into a surface's own bounds (shared by [AgentMessageRevealLight] and the bubble fill). */
-internal class AgentRevealGlow {
-    private val shader = RuntimeShader(AGENT_REVEAL_GLOW_AGSL)
-    private val brush = ShaderBrush(shader)
+/**
+ * The reveal light's renderer, one per API level: the AGSL pass on 33+, and on Android 12
+ * the same maths ported to GLSL ES 3.0, rendered off-screen by the shared GLES context
+ * ([GlPass]) and composited as a bitmap. Only if GLES is unusable there does the glow fall
+ * back to the Canvas approximation. [force] pins a renderer for the shader lab's side-by-side
+ * golden diff; production callers take the default (null).
+ */
+class AgentRevealGlow(private val force: Mode? = null) {
+    enum class Mode { Agsl, Gl }
+
+    private val renderer: Renderer = when {
+        force == Mode.Gl -> GlGlow()
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> AgslGlow()
+        else -> GlGlow()
+    }
 
     fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
-        if (light <= 1e-4) return
-        val (lift, glow) = AgentMessageReveal.colors(dark)
-        val full = TranscriptMetrics.bubbleCornerRadius.value
-        val tight = UserMessageRun.tightRadius.value
-        shader.setFloatUniform("size", size.width, size.height)
-        shader.setFloatUniform("radii", full, full, if (corners.top) tight else full, if (corners.bottom) tight else full)
-        shader.setFloatUniform("density", density)
-        shader.setColorUniform("liftIn", lift.toArgb())
-        shader.setColorUniform("glowIn", glow.toArgb())
-        shader.setFloatUniform("fillLift", (AgentMessageReveal.fillLift * light).toFloat())
-        shader.setFloatUniform("innerGlow", (AgentMessageReveal.innerGlow * light).toFloat())
-        drawRect(brush)
+        with(renderer) { draw(light, corners, dark) }
+    }
+
+    fun close() {
+        renderer.close()
+    }
+
+    private interface Renderer {
+        fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean)
+        fun close() {}
+    }
+
+    /** The AGSL pass, API 33+, unchanged. */
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private class AgslGlow : Renderer {
+        private val shader = RuntimeShader(AGENT_REVEAL_GLOW_AGSL)
+        private val brush = ShaderBrush(shader)
+
+        override fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
+            if (light <= 1e-4) return
+            val (lift, glow) = AgentMessageReveal.colors(dark)
+            val full = TranscriptMetrics.bubbleCornerRadius.value
+            val tight = UserMessageRun.tightRadius.value
+            shader.setFloatUniform("size", size.width, size.height)
+            shader.setFloatUniform("radii", full, full, if (corners.top) tight else full, if (corners.bottom) tight else full)
+            shader.setFloatUniform("density", density)
+            shader.setColorUniform("liftIn", lift.toArgb())
+            shader.setColorUniform("glowIn", glow.toArgb())
+            shader.setFloatUniform("fillLift", (AgentMessageReveal.fillLift * light).toFloat())
+            shader.setFloatUniform("innerGlow", (AgentMessageReveal.innerGlow * light).toFloat())
+            drawRect(brush)
+        }
+    }
+
+    /** The ported pass on GLES 3.0 (docs/android-12-support.md §10.2); Canvas fallback if GL is unusable. */
+    private class GlGlow : Renderer {
+        private val pass = GlPass(AGENT_REVEAL_GLOW_GLSL)
+        private val canvas by lazy { CanvasGlow() }
+
+        override fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
+            if (light <= 1e-4) return
+            val (lift, glow) = AgentMessageReveal.colors(dark)
+            val full = TranscriptMetrics.bubbleCornerRadius.value
+            val tight = UserMessageRun.tightRadius.value
+            val width = ceil(size.width).toInt()
+            val height = ceil(size.height).toInt()
+            val rendered = pass.render(width, height) { gl ->
+                GLES30.glUniform2f(gl.location("size"), size.width, size.height)
+                GLES30.glUniform4f(gl.location("radii"), full, full, if (corners.top) tight else full, if (corners.bottom) tight else full)
+                GLES30.glUniform1f(gl.location("density"), density)
+                GLES30.glUniform4f(gl.location("liftIn"), lift.red, lift.green, lift.blue, lift.alpha)
+                GLES30.glUniform4f(gl.location("glowIn"), glow.red, glow.green, glow.blue, glow.alpha)
+                GLES30.glUniform1f(gl.location("fillLift"), (AgentMessageReveal.fillLift * light).toFloat())
+                GLES30.glUniform1f(gl.location("innerGlow"), (AgentMessageReveal.innerGlow * light).toFloat())
+            }
+            val bitmap = if (rendered) pass.bitmap(width, height) else null
+            if (bitmap == null) {
+                with(canvas) { draw(light, corners, dark) }
+            } else {
+                drawImage(bitmap.asImageBitmap())
+            }
+        }
+
+        override fun close() {
+            pass.close()
+        }
+    }
+
+    /** API < 33: the flat fill lift plus the border blurred inward, in the bubble's clip. Main thread only. */
+    private class CanvasGlow : Renderer {
+        private val path = android.graphics.Path()
+        private var pathSize: Size? = null
+        private var pathCorners: UserSurfaceCorners? = null
+        private var blur: BlurMaskFilter? = null
+        private var blurFalloff = 0f
+        private val paint = Paint()
+
+        override fun DrawScope.draw(light: Double, corners: UserSurfaceCorners, dark: Boolean) {
+            if (light <= 1e-4) return
+            val (lift, glow) = AgentMessageReveal.colors(dark)
+            val aLift = (AgentMessageReveal.fillLift * light).toFloat().coerceIn(0f, 1f)
+            if (aLift > 1e-4f) drawRect(lift.copy(alpha = lift.alpha * aLift))
+            val aGlow = (AgentMessageReveal.innerGlow * light).toFloat().coerceIn(0f, 1f)
+            if (aGlow <= 1e-4f) return
+            val full = TranscriptMetrics.bubbleCornerRadius.toPx()
+            val tight = UserMessageRun.tightRadius.toPx()
+            val falloff = 7.dp.toPx()
+            val frameBlur = blurFor(falloff)
+            if (pathSize != size || pathCorners != corners) {
+                // addRoundRect's radii are four (x, y) pairs: tl, tr, br, bl.
+                path.reset()
+                path.addRoundRect(
+                    android.graphics.RectF(0f, 0f, size.width, size.height),
+                    floatArrayOf(
+                        full, full,
+                        if (corners.top) tight else full, if (corners.top) tight else full,
+                        if (corners.bottom) tight else full, if (corners.bottom) tight else full,
+                        full, full,
+                    ),
+                    android.graphics.Path.Direction.CW,
+                )
+                pathSize = size
+                pathCorners = corners
+            }
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = falloff
+            paint.maskFilter = frameBlur
+            paint.color = glow.copy(alpha = glow.alpha * 0.76f * aGlow).toArgb()
+            drawIntoCanvas { it.nativeCanvas.drawPath(path, paint) }
+        }
+
+        /** Density can change (multi-window), so the blur rebuilds when the falloff does. */
+        private fun blurFor(falloff: Float): BlurMaskFilter {
+            if (blurFalloff != falloff) {
+                blur = BlurMaskFilter(falloff * 0.5f, BlurMaskFilter.Blur.NORMAL)
+                blurFalloff = falloff
+            }
+            return blur!!
+        }
     }
 }
 

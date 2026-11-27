@@ -27,6 +27,7 @@ import android.content.res.Configuration
 import android.location.Address
 import android.location.Geocoder
 import android.location.Location
+import android.os.Build
 import android.location.LocationListener
 import android.location.LocationManager
 import android.location.LocationRequest
@@ -420,18 +421,29 @@ private object LiveLocation {
     private suspend fun reverseGeocode(context: Context, fix: Location): Address? {
         if (!Geocoder.isPresent()) return null
         return withTimeoutOrNull(geocodeTimeout) {
-            suspendCancellableCoroutine { continuation ->
-                runCatching {
-                    Geocoder(context).getFromLocation(fix.latitude, fix.longitude, 1, object : Geocoder.GeocodeListener {
-                        override fun onGeocode(addresses: MutableList<Address>) {
-                            if (continuation.isActive) continuation.resume(addresses.firstOrNull())
-                        }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                suspendCancellableCoroutine { continuation ->
+                    runCatching {
+                        Geocoder(context).getFromLocation(fix.latitude, fix.longitude, 1, object : Geocoder.GeocodeListener {
+                            override fun onGeocode(addresses: MutableList<Address>) {
+                                if (continuation.isActive) continuation.resume(addresses.firstOrNull())
+                            }
 
-                        override fun onError(errorMessage: String?) {
-                            if (continuation.isActive) continuation.resume(null)
-                        }
-                    })
-                }.onFailure { if (continuation.isActive) continuation.resume(null) }
+                            override fun onError(errorMessage: String?) {
+                                if (continuation.isActive) continuation.resume(null)
+                            }
+                        })
+                    }.onFailure { if (continuation.isActive) continuation.resume(null) }
+                }
+            } else {
+                // The listener overload is API 33; below it the call is blocking (API 1),
+                // so it runs off the main thread.
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        @Suppress("DEPRECATION")
+                        Geocoder(context).getFromLocation(fix.latitude, fix.longitude, 1)?.firstOrNull()
+                    }.getOrNull()
+                }
             }
         }
     }

@@ -21,8 +21,11 @@ import ai.opencode.feature.transcript.R as TranscriptR
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.os.Build
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import androidx.activity.addCallback
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
@@ -294,12 +297,21 @@ private fun CommentField(field: TextFieldState, saved: String, onSave: () -> Uni
 @Composable
 private fun CommentPanelBackHandler(enabled: Boolean, onBack: () -> Unit) {
     val activity = LocalContext.current.findActivity() ?: return
+    val backOwner = LocalOnBackPressedDispatcherOwner.current
     val currentOnBack by rememberUpdatedState(onBack)
     DisposableEffect(activity, enabled) {
         if (!enabled) return@DisposableEffect onDispose { }
-        val callback = OnBackInvokedCallback { currentOnBack() }
-        activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
-        onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val callback = OnBackInvokedCallback { currentOnBack() }
+            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+            onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        } else {
+            // Android 12 sends no back-progress events, so back only dismisses, as on 13.
+            val callback = backOwner?.onBackPressedDispatcher
+                ?.addCallback(backOwner, enabled = true) { currentOnBack() }
+                ?: return@DisposableEffect onDispose { }
+            onDispose { callback.remove() }
+        }
     }
 }
 

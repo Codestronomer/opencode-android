@@ -14,6 +14,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -263,6 +264,11 @@ class SessionNotifications internal constructor(private val tokens: PushTokenPro
 
     fun permissionStatus(): NotificationPermission {
         val context = dependency(AppContext)
+        // Below 33 there is no runtime permission: the app-wide notification toggle decides.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return if (NotificationManagerCompat.from(context).areNotificationsEnabled()) NotificationPermission.Enabled
+            else NotificationPermission.Disabled
+        }
         if (NotificationManagerCompat.from(context).areNotificationsEnabled() &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         ) return NotificationPermission.Enabled

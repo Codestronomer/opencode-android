@@ -9,6 +9,7 @@ import ai.opencode.core.strings.localized
 import ai.opencode.core.ui.AppearanceColorScheme
 import ai.opencode.core.ui.OpenCodeAppTheme
 import ai.opencode.core.ui.OpenCodeTheme
+import ai.opencode.core.ui.PredictiveBackSynthesizer
 import ai.opencode.core.ui.rememberAppAppearance
 import android.app.Activity
 import android.content.Context
@@ -19,6 +20,8 @@ import android.window.BackEvent
 import android.window.OnBackAnimationCallback
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import androidx.activity.addCallback
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -1330,74 +1333,83 @@ internal fun MediaViewerHost(
 
     val dark = MediaPresenter.isDarkRoom(isMedia)
     val page = !isMedia && !reducesMotion
-    Box(
-        Modifier
-            .fillMaxSize()
-            .onGloballyPositioned { coordinates ->
-                controller.originInWindow = coordinates.positionInWindow()
-                val size = coordinates.size
-                val rect = Rect(Offset.Zero, Size(size.width.toFloat(), size.height.toFloat()))
-                if (controller.bounds != rect) controller.bounds = rect
-            }
-            .graphicsLayer { alpha = controller.viewAlpha }
-            .semantics { paneTitle = screenName }
-            .pointerInput(controller) { trackPointer(controller) }
-            .pointerInput(controller) { dismissDrag(controller, slop, fromContent = false) }
-            .pointerInput(controller) { dismissDrag(controller, slop, fromContent = true) }
-            .nestedScroll(controller.documentDismissConnection),
+    PredictiveBackSynthesizer(
+        enabled = !controller.isLeaving,
+        onStarted = { controller.backBegan() },
+        onProgressed = { progress, fromRightEdge -> controller.backProgressed(progress, fromRightEdge) },
+        onCancelled = { controller.backCancelled() },
+        onInvoked = { controller.backCommitted() },
     ) {
-        if (!page) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = controller.backdropAlpha }
-                    .background(Color.Black),
-            )
-        }
-        val themed: @Composable () -> Unit = {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        val placement = controller.layerPlacement()
-                        alpha = placement.alpha
-                        scaleX = placement.scale
-                        scaleY = placement.scale
-                        translationX = placement.offset.x
-                        translationY = placement.offset.y
-                        transformOrigin = TransformOrigin(0f, 0f)
-                        val clip = placement.clip
-                        if (clip != null) {
-                            // The clip in the layer's own (unscaled) pixels.
-                            val local = Rect(
-                                (clip.left - placement.offset.x) / placement.scale,
-                                (clip.top - placement.offset.y) / placement.scale,
-                                (clip.right - placement.offset.x) / placement.scale,
-                                (clip.bottom - placement.offset.y) / placement.scale,
-                            )
-                            shape = MediaClipShape(placement.corners.roundRect(local, placement.radius / placement.scale))
-                            this.clip = true
-                        } else {
-                            shape = RectangleShape
-                            this.clip = false
-                        }
-                    }
-                    .then(if (page) Modifier.background(MaterialTheme.colorScheme.background) else Modifier)
-                    .drawWithContent {
-                        drawContent()
-                        with(controller) { drawHomeBadges() }
-                    },
-            ) {
-                CompositionLocalProvider(LocalMediaViewer provides state) { content(state) }
+        // On < 33 the edge swipes drive the callbacks; the 33+ system back does too.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    controller.originInWindow = coordinates.positionInWindow()
+                    val size = coordinates.size
+                    val rect = Rect(Offset.Zero, Size(size.width.toFloat(), size.height.toFloat()))
+                    if (controller.bounds != rect) controller.bounds = rect
+                }
+                .graphicsLayer { alpha = controller.viewAlpha }
+                .semantics { paneTitle = screenName }
+                .pointerInput(controller) { trackPointer(controller) }
+                .pointerInput(controller) { dismissDrag(controller, slop, fromContent = false) }
+                .pointerInput(controller) { dismissDrag(controller, slop, fromContent = true) }
+                .nestedScroll(controller.documentDismissConnection),
+        ) {
+            if (!page) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = controller.backdropAlpha }
+                        .background(Color.Black),
+                )
             }
-        }
-        // The hand-off's copy flies under the content's chrome.
-        Canvas(Modifier.fillMaxSize()) { controller.flight?.let { drawFlight(it) } }
-        if (dark) {
-            val appearance = rememberAppAppearance()
-            OpenCodeTheme(theme = appearance.theme, appearance = AppearanceColorScheme.Dark, content = themed)
-        } else {
-            OpenCodeAppTheme(content = themed)
+            val themed: @Composable () -> Unit = {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val placement = controller.layerPlacement()
+                            alpha = placement.alpha
+                            scaleX = placement.scale
+                            scaleY = placement.scale
+                            translationX = placement.offset.x
+                            translationY = placement.offset.y
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            val clip = placement.clip
+                            if (clip != null) {
+                                // The clip in the layer's own (unscaled) pixels.
+                                val local = Rect(
+                                    (clip.left - placement.offset.x) / placement.scale,
+                                    (clip.top - placement.offset.y) / placement.scale,
+                                    (clip.right - placement.offset.x) / placement.scale,
+                                    (clip.bottom - placement.offset.y) / placement.scale,
+                                )
+                                shape = MediaClipShape(placement.corners.roundRect(local, placement.radius / placement.scale))
+                                this.clip = true
+                            } else {
+                                shape = RectangleShape
+                                this.clip = false
+                            }
+                        }
+                        .then(if (page) Modifier.background(MaterialTheme.colorScheme.background) else Modifier)
+                        .drawWithContent {
+                            drawContent()
+                            with(controller) { drawHomeBadges() }
+                        },
+                ) {
+                    CompositionLocalProvider(LocalMediaViewer provides state) { content(state) }
+                }
+            }
+            // The hand-off's copy flies under the content's chrome.
+            Canvas(Modifier.fillMaxSize()) { controller.flight?.let { drawFlight(it) } }
+            if (dark) {
+                val appearance = rememberAppAppearance()
+                OpenCodeTheme(theme = appearance.theme, appearance = AppearanceColorScheme.Dark, content = themed)
+            } else {
+                OpenCodeAppTheme(content = themed)
+            }
         }
     }
 }
@@ -1557,12 +1569,21 @@ private fun StatusBarEffect(controller: MediaViewerController) {
 @Composable
 internal fun MediaBackHandler(enabled: Boolean, onBack: () -> Unit) {
     val activity = LocalContext.current.findActivity() ?: return
+    val backOwner = LocalOnBackPressedDispatcherOwner.current
     val currentOnBack by rememberUpdatedState(onBack)
     DisposableEffect(activity, enabled) {
         if (!enabled) return@DisposableEffect onDispose { }
-        val callback = OnBackInvokedCallback { currentOnBack() }
-        activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
-        onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val callback = OnBackInvokedCallback { currentOnBack() }
+            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+            onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
+        } else {
+            // Android 12 sends no back-progress events, so back only dismisses, as on 13.
+            val callback = backOwner?.onBackPressedDispatcher
+                ?.addCallback(backOwner, enabled = true) { currentOnBack() }
+                ?: return@DisposableEffect onDispose { }
+            onDispose { callback.remove() }
+        }
     }
 }
 
@@ -1580,34 +1601,43 @@ internal fun MediaPredictiveBackHandler(
     onInvoked: () -> Unit,
 ) {
     val activity = LocalContext.current.findActivity() ?: return
+    val backOwner = LocalOnBackPressedDispatcherOwner.current
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentOnProgressed by rememberUpdatedState(onProgressed)
     val currentOnCancelled by rememberUpdatedState(onCancelled)
     val currentOnInvoked by rememberUpdatedState(onInvoked)
     DisposableEffect(activity, enabled) {
         if (!enabled) return@DisposableEffect onDispose { }
-        // Android 13 reports no gesture progress to apps, so back there only dismisses.
-        val callback = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            OnBackInvokedCallback { currentOnInvoked() }
-        } else object : OnBackAnimationCallback {
-            override fun onBackStarted(backEvent: BackEvent) {
-                currentOnStarted()
-            }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            // Android 12 sends no back-progress events, so back only dismisses, as on 13.
+            val callback = backOwner?.onBackPressedDispatcher
+                ?.addCallback(backOwner, enabled = true) { currentOnInvoked() }
+                ?: return@DisposableEffect onDispose { }
+            onDispose { callback.remove() }
+        } else {
+            // Android 13 reports no gesture progress to apps, so back there only dismisses.
+            val callback = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                OnBackInvokedCallback { currentOnInvoked() }
+            } else object : OnBackAnimationCallback {
+                override fun onBackStarted(backEvent: BackEvent) {
+                    currentOnStarted()
+                }
 
-            override fun onBackProgressed(backEvent: BackEvent) {
-                currentOnProgressed(backEvent.progress, backEvent.swipeEdge == BackEvent.EDGE_RIGHT)
-            }
+                override fun onBackProgressed(backEvent: BackEvent) {
+                    currentOnProgressed(backEvent.progress, backEvent.swipeEdge == BackEvent.EDGE_RIGHT)
+                }
 
-            override fun onBackCancelled() {
-                currentOnCancelled()
-            }
+                override fun onBackCancelled() {
+                    currentOnCancelled()
+                }
 
-            override fun onBackInvoked() {
-                currentOnInvoked()
+                override fun onBackInvoked() {
+                    currentOnInvoked()
+                }
             }
+            activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
+            onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
         }
-        activity.onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
-        onDispose { activity.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(callback) }
     }
 }
 

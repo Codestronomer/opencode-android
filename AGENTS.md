@@ -207,6 +207,7 @@ Add a new library only with a one-line justification here.
 - `com.k2fsa.sherpa.onnx` sherpa-onnx 1.12.9 (composer): the bundled on-device ASR engine that gives Android 12 real dictation (docs/android-12-support.md §10.3); k2-fsa publishes no Maven Central artifact, so the release AAR is vendored at `feature/composer/libs/` (classes jar via `files(...)`, its `.so` files in `jniLibs` — AGP forbids local `.aar` deps in a library module) — the one deviation from catalog-only coordinates.
 - `androidx.fragment:fragment` (app, constraint only): raises the fragment 1.1.0 that Firebase Messaging's Play services libraries pull in, which Google Play's SDK index flags as outdated; the app has no Fragments of its own.
 - `androidx.appcompat:appcompat` (app, feature:settings): per-app language on Android 12 — `AppCompatActivity` hosts Compose and `AppCompatDelegate`/`AppLocalesMetadataHolderService` store the choice, delegating to the framework `LocaleManager` on 33+ (docs/android-12-support.md §9.5).
+- `androidx.navigationevent:navigationevent` (app, constraint only): raises the 1.1.x that Compose 1.13 and Navigation 3 pull in, which crashes when a focusable popup closes during a predictive back gesture; 1.2.0 ignores back events sent to a removed input.
 
 ## Check and run
 
